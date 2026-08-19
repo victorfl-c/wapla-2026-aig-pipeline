@@ -1,0 +1,36 @@
+
+STRUCTURAL DIAGNOSIS SUMMARY - 239 Rejected AI-Generated Questions
+================================================================
+
+1) VERBOSITY BIAS (R16, R22)
+   - Mean (correct - mean distractor) length: +2.29 words
+     [95% bootstrap CI: +1.74, +2.88] (Wilcoxon p=3.64e-16)
+   - correct_option is the LONGEST option in 49.8% of items
+     (chance level: 20.0%)
+
+2) POSITION BIAS (R21, R16)
+   - P(correct_option == "A") = 80.8% [95% CI: 75.7%, 85.8%]
+     vs. chance level of 20.0%
+   - Chi-square goodness-of-fit vs. uniform: chi2=558.1, p=1.82e-119
+
+3) BLOOM'S TAXONOMY MISMATCH (R6-R11)
+   - Using full cognitive text (stem + assertions/statements, Section 4.1):
+     96 items (40.2%) contain NO canonical
+     Bloom-level verb anywhere in the item -- violates R10's fixed-template
+     requirement
+   - Among items with an unambiguous verb match, declared/inferred level
+     mismatch rate: 68.2%
+   - (Diagnostic note: stem-only extraction found 139 items (58.2%)
+     with no verb, but 100% of that figure for Assercao-Razao/Multipla Escolha
+     Complexa was a format artifact -- generic boilerplate stems -- not a
+     generation defect; see Section 4.1)
+   - 172 items (72.0%) are declared Evaluate/Create-level
+     content delivered in a single-best-answer MCQ format -- structurally
+     illegal under R9 regardless of any other quality dimension
+
+4) COMPOSITE
+   - Mean tracked structural flaws per item: 2.27 / 4
+   - Items with zero tracked flaws (rejected for other reasons):
+     4 (1.7%)
+
+All figures saved to: C:\Users\vflc2\Desktop\meu_projeto_mestrado\output

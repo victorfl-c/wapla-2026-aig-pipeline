@@ -1,0 +1,22 @@
+cd ~/meu_projeto_mestrado
+cat > .gitignore << 'EOF'
+.env
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+output/*.json
+output/aig_engine.log
+*.log
+.cache/
+EOFoutput/backup_groq_ollama_mix/
+output/*.csv
+output/*.jsonl
+!output/entregavel_2_100_questoes_design_d_full.csv
+Template_SBC/
+Template_SBC/
+relatorio/sbc-template.sty
+relatorio/sbc.bst
+.claude/
+/relatorio_tecnico.tex
+.claude/

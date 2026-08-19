@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "slurm-hpc": {
+      "command": "python",
+      "args": ["mcp_hpc_server.py"],
+      "env": {
+        "SLURM_MCP_HOME_DIR": "/home/CIN/vflc/meu_projeto_mestrado",
+        "SLURM_MCP_DATA_DIR": "/tmp/models",
+        "SLURM_MCP_SCRATCH_DIR": "/tmp"
+      }
+    }
+  }
+}

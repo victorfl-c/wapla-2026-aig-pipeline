@@ -1,0 +1,988 @@
+\documentclass[12pt]{article}
+
+\usepackage{sbc-template}
+\usepackage{graphicx,url}
+\usepackage[utf8]{inputenc}
+\usepackage[brazil]{babel}
+% NOTE: the official sbc-template.tex also loads \usepackage[latin1]{inputenc}
+% immediately after the utf8 one. That second load silently overrides the
+% encoding and would break every accented character in this UTF-8-authored
+% file, so it is deliberately NOT repeated here -- this is the one
+% intentional deviation from the literal template preamble, kept for
+% correctness rather than parity.
+
+\sloppy
+
+\title{Diagnóstico e Correção de Vieses Estruturais em Questões de Múltipla
+  Escolha Geradas por IA: um Pipeline Generator$\leftrightarrow$Judge para a
+  WAPLA 2026}
+
+\author{Victor Felipe Lourenço da Costa\inst{1}}
+
+\address{Centro de Informática (CIn) -- Universidade Federal de Pernambuco (UFPE)\\
+  Recife -- PE -- Brasil
+  \email{vflc@cin.ufpe.br}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+  This report documents the diagnosis and repair of 239 AI-generated
+  multiple-choice educational items rejected on quality grounds (WAPLA 2026,
+  Competition 2). An exploratory structural analysis identified four
+  quantifiable defects -- position bias, verbosity bias, Bloom's-Taxonomy
+  verb/level mismatch, and format-illegal cognitive-level assignment -- and a
+  Generator$\leftrightarrow$Judge pipeline, built under a fixed rule set
+  derived from a five-module literature review, was used to repair a batch of
+  the most severely flawed items. The report documents every deliberate
+  deviation from the governing specification, and reports a mid-project
+  architectural finding -- a coupling between answer-position assignment and
+  content generation -- that was diagnosed and corrected during
+  implementation.
+\end{abstract}
+
+\begin{resumo}
+  Este relatório documenta o diagnóstico e o reparo de 239 questões de
+  múltipla escolha geradas por IA e rejeitadas por critérios de qualidade
+  (WAPLA 2026, Competição 2). Uma análise exploratória estrutural identificou
+  quatro defeitos quantificáveis -- viés de posição, viés de verbosidade,
+  incompatibilidade entre verbo e nível na Taxonomia de Bloom, e nível
+  cognitivo estruturalmente ilegal para o formato -- e um pipeline
+  Generator$\leftrightarrow$Judge, sob um conjunto fixo de regras derivado de
+  uma revisão de literatura em cinco módulos, reparou um lote dos itens mais
+  defeituosos. O relatório documenta todo desvio deliberado da especificação
+  e relata um achado arquitetural -- um acoplamento entre a posição da
+  resposta correta e a geração do conteúdo -- diagnosticado e corrigido
+  durante a implementação.
+\end{resumo}
+
+\section{Introdução}
+\label{sec:introducao}
+
+A Competição 2 da WAPLA 2026 (\emph{Quality of AI-Generated Educational
+Questions}) parte de um problema concreto e pouco usual em trabalhos sobre
+geração automática de itens (\emph{Automated Item Generation}, AIG): em vez
+de avaliar itens recém-gerados, o ponto de partida é um conjunto de 239
+questões de múltipla escolha \textbf{já geradas por IA e já rejeitadas} por
+critérios de qualidade não rotulados explicitamente no
+\emph{dataset}\footnote{\texttt{aiboxlab/ai-generated-questions-quality},
+  Hugging Face, \emph{split} único \texttt{data}.}. A tarefa não é apenas
+gerar itens novos, mas primeiro \textbf{diagnosticar} por que esses 239 itens
+foram rejeitados -- via análise estrutural, não via um rótulo fornecido -- e
+então construir um pipeline capaz de \textbf{reparar} um lote desses itens em
+questões estruturalmente válidas, sob um conjunto de regras imutável derivado
+de uma revisão de literatura em cinco módulos: (1)~pedagogia PBL e Taxonomia
+de Bloom \cite{chen2026automated}; (2)~motor AIG sintético e geração de dados
+sintéticos preservando privacidade \cite{seedat2025datacentric}; (3)~viés de
+juiz LLM e psicometria TRI \cite{zheng2023judging}; (4)~infraestrutura e
+Green AI \cite{bai2024beyond}; (5)~rigor de engenharia e artefatos de
+especificação \cite{piskala2026specdriven}.
+
+Este relatório está estruturado em seis partes. A Seção~\ref{sec:metodologia}
+descreve a arquitetura Generator$\leftrightarrow$Judge efetivamente
+implementada e documenta, de forma explícita, todo ponto em que a
+implementação diverge do texto literal da especificação (\texttt{spec.md}). A
+Seção~\ref{sec:descoberta} relata o achado metodológico central deste
+trabalho: uma falha arquitetural -- não uma limitação do modelo generativo --
+identificada ao investigar uma taxa de aprovação inicialmente baixa. A
+Seção~\ref{sec:resultados} reporta os achados estruturais da análise
+exploratória (EDA) sobre os 239 itens rejeitados e as métricas da execução
+completa do pipeline. A Seção~\ref{sec:evidencias} referencia as figuras que
+sustentam esses achados. A Seção~\ref{sec:implicacoes} fecha o relatório
+explicando como cada achado foi operacionalizado na geração/correção das 100
+questões finais entregues. O notebook completo desta análise (EDA e execução
+do pipeline) está publicamente disponível no
+Kaggle\footnote{URL do notebook Kaggle: \url{https://www.kaggle.com/code/victorflc/notebooke091850abb}.}.
+
+\section{Metodologia}
+\label{sec:metodologia}
+
+\subsection{Arquitetura Generator$\leftrightarrow$Judge}
+
+O pipeline implementado (\texttt{WAPLA\_AIG\_Engine.py}) segue a arquitetura
+multiagente Generator$\leftrightarrow$Judge descrita em \texttt{spec.md}
+Seção~4, com o Protocolo de Julgamento Mitigado por Viés da Seção~4.2.1 como
+o componente mais diretamente implementado. Cada item candidato passa por:
+(i)~um \emph{Generator Agent} que reescreve o item a partir do diagnóstico
+estrutural produzido pela EDA; (ii)~um \emph{pré-filtro mecânico}, que
+verifica posição, verbosidade, exclusividade mútua e alinhamento de verbo de
+Bloom antes de qualquer chamada cara ao juiz LLM; e (iii)~um \emph{Judge
+  Agent}, implementado como um segundo modelo, arquiteturalmente distinto do
+gerador, que resolve o item às cegas (\emph{blind-solve}) sobre rótulos de
+opção embaralhados antes de ver a resposta reivindicada como correta -- a
+decorrelação de viés de posição exigida por R21/R23. Itens reprovados
+retornam ao gerador com o motivo da rejeição incorporado ao próximo prompt,
+até um número máximo de tentativas; itens que esgotam as tentativas seguem
+para um \emph{pool} de reserva documentado, nunca são descartados
+silenciosamente.
+
+A separação arquitetural obrigatória entre gerador e juiz (R26) segue
+diretamente a evidência de viés de autopreferência (\emph{self-preference})
+reportada por \cite{zheng2023judging}: no estudo dos autores, um juiz GPT-4
+favoreceu respostas geradas pelo próprio GPT-4 em $+10\%$ de taxa de
+vitória, e um juiz Claude-v1 favoreceu as próprias respostas em $+25\%$ --
+valores citados aqui como \textbf{ilustrativos} de uma ordem de grandeza
+observada em um estudo específico, não como prova assentada de uma
+magnitude universal de autopreferência. O próprio \cite{zheng2023judging}
+reporta esse efeito apenas para o caso em que gerador e juiz são
+exatamente o mesmo modelo; os autores não afirmam ter confirmado que o
+efeito se estenda a variantes de uma mesma família de modelos (por
+exemplo, \emph{checkpoints} diferentes do mesmo fornecedor), de modo que
+essa generalização -- presente em uma versão anterior deste relatório --
+não é adotada aqui.
+
+\subsection{Desvios Documentados em Relação a \texttt{spec.md}}
+\label{sec:desvios}
+
+Seguindo a prática de manutenção deste projeto como um conjunto de artefatos
+\emph{spec-anchored} \cite{piskala2026specdriven} -- em que toda divergência
+entre especificação e implementação deve ser rejeitada ou registrada
+explicitamente, nunca deixada como deriva silenciosa -- quatro desvios
+deliberados foram identificados: os três primeiros documentados diretamente
+no cabeçalho do módulo de implementação, e o quarto identificado em revisão
+posterior de rastreabilidade entre implementação e especificação:
+
+\begin{enumerate}
+\item \textbf{Pré-filtro mecânico em vez de classificador treinado.}
+  \texttt{spec.md} Seção~4.2, passo~1, descreve um curador estatístico
+  \emph{treinado} sobre dinâmica de aprendizagem (padrão CLLM de
+  \cite{seedat2025datacentric}). O escopo desta entrega proíbe o treinamento
+  de qualquer modelo; esse estágio foi reimplementado como um portão
+  determinístico, baseado em regras -- arquiteturalmente no mesmo papel (um
+  filtro barato, não-LLM, que roda antes da chamada cara ao juiz), porém sem
+  um classificador treinado por trás.
+\item \textbf{\emph{Single-shuffle} em vez de reordenação 10$\times$.}
+  \texttt{spec.md} Seção~4.2.1, passo~1, especifica votação por maioria sobre
+  $\geq$10 reordenações aleatórias das opções para auditoria de viés de
+  posição do juiz em itens de múltipla escolha
+  \cite{pezeshkpour2024large}. Em 100 itens $\times$ até 3 tentativas, isso
+  representa até 3.000 chamadas extras ao juiz somente para essa checagem. O
+  padrão adotado aqui é uma decorrelação por \emph{blind-solve} de
+  embaralhamento único; a versão completa de votação por 10 reordenações
+  permanece disponível via a \emph{flag}
+  \texttt{-{}-rigorous-position-check} para lotes menores ou de mais alto
+  risco. É preciso registrar explicitamente que esse modo padrão de
+  embaralhamento único \textbf{não satisfaz}, por si só, o piso mínimo de
+  R21 (\emph{bidirectional swap-and-average}, declarando empate em caso de
+  inconsistência): uma única chamada ao juiz sobre uma única reordenação
+  aleatória, comparada apenas contra a letra-alvo reivindicada, não é o
+  mesmo que executar o julgamento em ambas as ordenações e comparar os dois
+  vereditos entre si. O modo \texttt{-{}-rigorous-position-check} (10
+  reordenações, unanimidade exigida) satisfaz o piso de R21; o modo padrão
+  usado na execução reportada aqui não o satisfaz, e essa é registrada como
+  uma limitação adicional deste \emph{deliverable}, não como conformidade
+  parcial.
+\item \textbf{Ausência da checagem de leniência humana (SME).}
+  \texttt{spec.md} Seção~4.2.1, passo~5, exige comparação periódica da taxa
+  de aprovação do juiz contra uma linha de base de especialistas humanos
+  (SME) \cite{kim2025stairaig}. Não há revisor humano em um \emph{script}
+  totalmente automatizado; essa lacuna é registrada explicitamente no resumo
+  final da execução (\texttt{print\_run\_summary()}), não omitida em
+  silêncio -- em conformidade com a exigência de divulgação de R24 e R33.
+\item \textbf{Rebaixamento de nível em vez de roteamento para resposta
+  aberta.} \texttt{spec.md} Seção~2.5 especifica que itens cujo nível de
+  Bloom pretendido é Avaliar ou Criar devem ser roteados para um caminho de
+  geração de resposta aberta, nunca para o formato de múltipla escolha (MCQ)
+  -- MCQ é permitido apenas para níveis confirmados como
+  Lembrar/Compreender/Aplicar/Analisar. A implementação em
+  \texttt{determine\_target\_level()} não constrói esse caminho de resposta
+  aberta: em vez disso, rebaixa mecanicamente todo item Avaliar/Criar para o
+  nível Analisar e o mantém no formato de múltipla escolha, já que o esquema
+  de entrega da competição exige uma única resposta correta por item. Esse é
+  um desvio deliberado -- não uma omissão --, mas distinto em natureza dos
+  três anteriores: não é uma redução de custo/escopo sobre o mesmo
+  comportamento especificado, e sim a substituição do comportamento
+  especificado (roteamento de formato) por outro (rebaixamento de nível),
+  necessária porque o esquema de saída da competição não admite um formato
+  de resposta aberta.
+\end{enumerate}
+
+\subsection{Escolha de Modelos: Afastamento do Princípio Green AI}
+\label{sec:green-ai}
+
+\texttt{spec.md} Seção~5 (derivada do Módulo~4 da revisão de literatura,
+fundamentado em \cite{bai2024beyond}) especifica um
+roteamento sensível a energia/custo entre níveis de modelo (SLM/MLM/LLM),
+com seleção de configuração Pareto-eficiente baseada em métricas de
+eficiência medidas empiricamente (FLOPs, latência, energia em kWh,
+custo financeiro por item). Nenhuma dessa infraestrutura foi implementada.
+Em vez disso, o gerador e o juiz usam modelos de nuvem gratuitos hospedados
+via Groq (\texttt{groq/openai/gpt-oss-20b} para o gerador,
+\texttt{groq/qwen/qwen3.6-27b} para o juiz), satisfazendo a separação
+arquitetural entre famílias de modelo exigida por R26, mas sem qualquer
+medição real de energia ou computação de fronteira de Pareto. A escolha
+de \texttt{gpt-oss-20b} é adicionalmente corroborada por evidência
+externa publicada após esta entrega: \cite{korthals2026sure} avaliaram
+\texttt{gpt-oss-20b} especificamente como modelo avaliador
+(\emph{grader}) sob o método SURE (\emph{self-consistency} + revisão
+humana seletiva) e o encontraram como o mais forte entre três modelos
+testados, superando inclusive o Llama-3.3-70B-Instruct, substancialmente
+maior -- um indício de que a capacidade de raciocínio do modelo, não sua
+contagem de parâmetros, é o fator determinante para confiabilidade de
+julgamento nesta faixa de tamanho. Esse é um
+afastamento reconhecido, não um descuido, do princípio Green AI do
+Módulo~4 \cite{verdecchia2023systematic,shao2026routeandreason}: o prazo do projeto tornou inviável
+treinar, ajustar e comparar empiricamente múltiplos modelos SLM/MLM locais em
+hardware apenas de CPU dentro do tempo disponível, e a inferência em nuvem
+gratuita elimina a necessidade de hardware local de GPU, mas tem um custo
+metodológico direto -- não há visibilidade sobre a infraestrutura da Groq,
+logo nenhuma das métricas de eficiência exigidas pela Seção~5.4 (FLOPs, kWh,
+\$/item) pode ser reportada com este pipeline tal como executado. Esta
+limitação é reportada aqui explicitamente, e não deve ser confundida com
+conformidade ao princípio Green AI.
+
+\subsection{Medição Real de Energia: Fechando Parcialmente a Lacuna do Green AI}
+\label{sec:green-ai-medido}
+
+A limitação reportada na seção anterior -- ausência de qualquer visibilidade
+sobre a infraestrutura de inferência ao usar modelos hospedados via Groq --
+não se aplica às execuções de calibração conduzidas posteriormente com o
+gerador e o juiz servidos localmente (\texttt{vllm\_local}, servidores vLLM
+em \texttt{cluster-node7}, hardware de GPU diretamente controlado por este
+projeto). Isso torna possível, pela
+primeira vez neste projeto, reportar uma figura de energia real, medida
+diretamente no hardware -- não um proxy derivado de contagem de tokens
+(diferente do mecanismo de log auditável descrito para R37/\texttt{spec.md}
+\S5.6, que continua sendo o único recurso disponível para as execuções via
+Groq).
+
+\paragraph{Metodologia.} Seguindo o objetivo de medição de
+\cite{chung2026joules} (``Where Do the Joules Go?'') e de
+\cite{wang2026systematic}, que instrumentam energia de inferência
+diretamente no hardware em vez de estimá-la apenas a partir de contagens de
+token, este projeto amostrou \texttt{nvidia-smi --query-gpu=power.draw,
+utilization.gpu,memory.used} a cada 2 segundos durante toda a duração da
+execução completa do pool de 239 itens (Design D, R45), do início do
+processo até a escrita do CSV/JSONL finais. A energia total foi calculada
+integrando a potência instantânea (W) ao longo do tempo pela regra do
+trapézio, convertendo Watt-segundos em Watt-horas (dividido por 3600) e depois
+em quilowatt-horas. Diferente de \cite{chung2026joules}, que usa a
+ferramenta Zeus (You, Chung \& Chowdhury, 2023) para leitura direta de
+contadores de energia da GPU, esta medição usa amostragem periódica de
+potência instantânea como aproximação mais leve do mesmo objetivo -- não
+uma reprodução da instrumentação exata deles. \cite{vartziotis2026tokens}
+mostram que estimar energia a partir de contagem de tokens exige constantes
+de calibração específicas por arquitetura de GPU (H100 vs.\ A100 já diferem
+em $\sim$30--35\%); a medição direta de potência aqui descrita contorna
+completamente esse problema de calibração, pois mede a potência real no
+hardware efetivamente usado, não uma estimativa derivada de tokens.
+
+\paragraph{Resultados.} Execução completa do pool de 239 candidatos,
+Design D (R45), \texttt{vllm\_local/phi-4@8000} (gerador) +
+\texttt{vllm\_local/gpt-oss-20b@8001} (juiz), \texttt{cluster-node7},
+$\sim$8.826 amostras de potência a 2s de intervalo:
+\begin{itemize}
+  \item Duração total (relógio de parede): \textbf{5h08min} (308,3 min;
+    15:00:21--20:08:30, consistente entre os \emph{timestamps} do log da
+    aplicação e os \emph{timestamps} das próprias amostras de energia,
+    que divergem em menos de 10 segundos)
+  \item Potência média: \textbf{291,5 W}
+  \item Potência de pico: \textbf{408,8 W}
+  \item Energia total consumida: \textbf{1,498 kWh} (1.497,85 Wh)
+  \item Itens aprovados nesta execução: \textbf{93} de 239 candidatos
+    (38,9\% de taxa de aprovação)
+  \item \textbf{Energia por item aprovado: 0,0161 kWh/item} (16,1 Wh/item)
+    -- esta é a métrica-síntese de Green AI para esta execução.
+\end{itemize}
+
+\paragraph{Escopo da medição -- o que isto NÃO cobre.} Esta figura mede
+apenas o consumo de potência da GPU reportado pelo \texttt{nvidia-smi}
+durante a janela de inferência local (\texttt{vllm\_local}); não inclui:
+overhead de CPU/memória do host, energia de rede, nem qualquer custo de
+infraestrutura compartilhada do cluster (refrigeração, outros processos no
+mesmo nó). Também não é diretamente comparável às execuções via Groq
+descritas na seção anterior, cuja energia permanece inteiramente
+não-mensurável a partir deste projeto -- esta seção fecha a lacuna
+\emph{apenas} para as execuções locais via vLLM, não retroativamente para
+o restante do pipeline.
+
+\subsection{Cobertura da Especificação}
+\label{sec:cobertura}
+
+A Tabela~\ref{tab:cobertura} consolida, em um único ponto, o status de
+cada regra de \texttt{constitution.md} e de cada seção arquitetural de
+\texttt{spec.md} frente ao que foi de fato implementado nesta entrega --
+substituindo a leitura fragmentada que antes exigia cruzar as três
+subseções de divulgação anteriores (\S\ref{sec:desvios},
+\S\ref{sec:green-ai} e a limitação de TRI na
+Seção~\ref{sec:implicacoes}) com o texto integral de \texttt{spec.md}.
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\begin{tabular}{p{2.6cm}p{6.6cm}p{1.7cm}p{2.9cm}}
+\hline
+\textbf{Regra(s) / \texttt{spec.md}} & \textbf{Componente} & \textbf{Status} & \textbf{Nota} \\
+\hline
+R1--R5 (\S I) / \S2.1--2.3, \S2.10 &
+  Blueprint PBL, modos de integração, governança de mediação por IA &
+  Fora de escopo &
+  Entrega reaproveita itens já existentes; não gera cenários PBL do zero. \\
+R6--R8 (\S II) / \S2.2, \S2.5 &
+  Taxonomia de Bloom, classificador independente &
+  Parcial &
+  \texttt{check\_bloom\_verb()} é um portão por verbo, não um classificador
+  treinado (R8 exige um classificador \emph{independente}, ausente aqui). \\
+R9 (\S II) &
+  Formato MCQ ilegal para Avaliar/Criar &
+  Implementado &
+  \texttt{determine\_target\_level()} rebaixa a Analisar antes da geração
+  (Desvio~4, \S\ref{sec:desvios}); confirmado sobre os 100 itens finais:
+  zero itens Avaliar/Criar entregues em MCQ. \\
+R10 (\S II) &
+  \emph{Template} fixo por nível de Bloom (banco de verbos + regra
+  estrutural) &
+  Parcial &
+  Apenas a metade ``banco de verbos'' tem código
+  (\texttt{check\_bloom\_verb()}, 26 disparos reais em 2026-08-18); a
+  metade ``regra estrutural'' (reformulação causa/efeito, prós/contras
+  etc.) não tem código algum -- todo nível recebe as mesmas instruções de
+  estrutura de opção. Ver nota de escopo em \texttt{constitution.md} R10. \\
+R11 (\S II) &
+  Dificuldade de Bloom como hipótese empírica ($\Delta_{bloom}$) &
+  Fora de escopo &
+  Nenhuma estatística de discriminação entre níveis é computada em
+  nenhum lugar do \emph{pipeline}; mesma categoria de R1--R5. Ver nota de
+  escopo em \texttt{constitution.md} R11. \\
+R12--R13 &
+  Exclusividade mútua de opções &
+  Implementado &
+  \texttt{check\_mutual\_exclusivity()} (Jaccard) + exclusividade por
+  construção nos formatos templados. \\
+R14--R16 &
+  Rubricas, limiar de \emph{item-writing-flaws} &
+  Fora de escopo &
+  Dataset da competição não inclui geração de rubricas. \\
+R17--R20 (\S IV) / \S4.1, \S4.2 passo~1 &
+  Dados sintéticos, curador CLLM treinado sobre dinâmica de aprendizagem &
+  Desviado &
+  Pré-filtro mecânico substitui o curador treinado (Desvio~1). \\
+R21, R23, R26 (\S V) / \S4.2.1 passos~1,3,4 &
+  Decorrelação de viés de posição; separação arquitetural gerador/juiz &
+  Parcial &
+  \emph{Single-shuffle} em vez de 10 reordenações (Desvio~2); não satisfaz
+  o piso de R21 no modo padrão (ver \S\ref{sec:desvios}, item~2). \\
+R22, R25 &
+  Neutralização de viés de verbosidade &
+  Implementado &
+  \texttt{check\_verbosity()} (CV = 0,35) + auditoria por versão de
+  modelo. \\
+R24 (\S4.2.1 passo~5) &
+  Checagem de leniência contra linha de base humana &
+  Desviado &
+  Sem revisor humano no \emph{script} automatizado (Desvio~3). \\
+R27--R30 (\S VI) / \S4.4 &
+  Calibração TRI (dificuldade, discriminação) &
+  Fora de escopo &
+  Sem \emph{pool} de respondentes disponível (Seção~\ref{sec:implicacoes}). \\
+R31--R34 (\S VII) / \S6.4, \S6.6 &
+  Rigor de engenharia, relato estatístico, \emph{spec-anchoring} &
+  Implementado &
+  Bootstrap/IC em toda a EDA (R34); desvios registrados (R31), inclusive
+  o Desvio~4, identificado nesta auditoria. \\
+\S5 (Green AI / roteamento SLM-MLM-LLM) &
+  Roteamento sensível a energia/custo, seleção Pareto &
+  Fora de escopo &
+  Modelos gratuitos via Groq, sem medição de FLOPs/kWh/\$-item
+  (\S\ref{sec:green-ai}). \\
+\S6 (motor de correção, LangTest, figuras) &
+  Entrega de correção a estudantes, \emph{harness} de teste &
+  Fora de escopo &
+  Nenhum motor de correção implementado; itens não chegam a estudantes
+  nesta entrega. \\
+\S2.6 &
+  Detector de \emph{item-writing flaws} (31-guideline/19-flaw) &
+  Parcial &
+  Pré-filtro mecânico (posição, verbosidade, exclusividade, verbo de
+  Bloom) aproxima o papel do detector, mas não implementa a taxonomia
+  completa de 19 falhas. \\
+\S2.7--2.9 &
+  Linter de exclusividade de rubrica, revisão humana, banco de itens/
+  validação psicométrica &
+  Fora de escopo &
+  Sem rubricas geradas (formato MCQ apenas); sem revisor humano; sem
+  $\Delta_{model}$/$\Delta_{bloom}$ computados (Seção~\ref{sec:implicacoes}). \\
+\S3 &
+  \emph{Checklist} de validade de 16 perguntas &
+  Parcial &
+  Subconjunto mecânico coberto (formato, verbo de Bloom, exclusividade);
+  sem disposição final logada como \emph{gate} de 16 itens formal. \\
+\S4.3 &
+  Lógica de roteamento; \emph{flag} de taxa de descarte $>$50\% &
+  Parcial &
+  \texttt{process\_item()} registra um \emph{warning} de taxa de descarte
+  alta, mas não interrompe/regenera o lote automaticamente como o texto
+  da especificação prescreve. \\
+\hline
+\end{tabular}
+\caption{Cobertura da especificação: toda regra de \texttt{constitution.md}
+  e seção arquitetural de \texttt{spec.md}, frente ao que foi de fato
+  implementado nesta entrega.}
+\label{tab:cobertura}
+\end{table}
+
+\section{Descoberta Metodológica Central: Acoplamento entre Posição e
+  Conteúdo}
+\label{sec:descoberta}
+
+Durante a calibração do pipeline, a taxa de aprovação observada nas primeiras
+execuções foi mais baixa do que o esperado dado o desempenho relatado na
+literatura para modelos comparáveis. A investigação dessa taxa baixa revelou
+uma \textbf{falha arquitetural de design de prompt, não uma limitação de
+  capacidade do modelo gerador}.
+
+\paragraph{Nota de escopo (em resposta a comentário de revisão).} Embaralhar
+a posição da resposta correta no momento da apresentação ao estudante é
+prática padrão em avaliações de múltipla escolha, e o viés de posição no
+item-fonte, isoladamente, não constitui por si só uma falha -- é corrigível
+trivialmente por randomização de apresentação, sem qualquer intervenção
+sobre o conteúdo. O achado reportado nesta seção é mais estreito que isso,
+e sobrevive a essa ressalva: não é a existência de viés de posição no
+\emph{dataset} rejeitado que está em questão (isso é apenas o sintoma
+inicial que motivou a investigação), mas o \textbf{acoplamento entre
+  atribuir a posição-alvo balanceada ANTES de o conteúdo do item existir e
+  a geração desse conteúdo, dentro de uma única chamada ao modelo} -- é essa
+ordem de operações, não o viés de posição em si, que a subseção seguinte
+mostra corromper a correção do conteúdo.
+
+\subsection{Diagnóstico}
+
+Na primeira versão do pipeline, a letra-alvo da resposta correta
+(\texttt{TARGET\_LETTER}) -- atribuída programaticamente e de forma
+balanceada no corpus, conforme R21 -- era injetada no prompt do gerador
+\emph{antes} de o conteúdo do item existir: o modelo recebia simultaneamente
+a instrução ``coloque a resposta correta na posição
+\texttt{TARGET\_LETTER}'' e a tarefa de gerar um item factual e logicamente
+correto. Isso forçava o gerador a competir entre dois objetivos
+simultâneos -- correção posicional e correção de conteúdo -- dentro de uma
+única chamada geração.
+
+A evidência concreta desse padrão foi obtida por inspeção manual dos casos em
+que o \emph{blind-solve} do juiz discordava da letra reivindicada como
+correta. Três casos documentados diretamente no código
+(itens \texttt{63}, \texttt{392} e \texttt{457}) mostraram um padrão
+consistente: o gerador satisfazia de forma confiável a exigência posicional
+-- a resposta aparecia sempre na letra instruída --, mas nem sempre garantia
+que o conteúdo colocado naquela posição fosse, de fato, a alternativa
+correta. Em outras palavras, o modelo estava otimizando a posição às custas
+da correção.
+
+\subsection{Correção}
+
+A correção implementada desacopla completamente a geração de conteúdo do
+posicionamento. O gerador passou a escrever \emph{sempre} a resposta correta
+como \texttt{option\_a} (uma convenção fixa de prompt), concentrando-se
+inteiramente em garantir que esse conteúdo seja genuinamente correto, sem
+qualquer instrução de posicionamento concorrente. O reposicionamento para a
+letra-alvo balanceada no corpus (R21) é então aplicado
+\textbf{mecanicamente, depois da geração} -- uma troca de \emph{strings} pura
+sobre valores que já existem e já estão corretos (função
+\texttt{apply\_position\_shuffle()}), não mais uma restrição imposta durante
+a geração.
+
+\subsection{Resultado}
+
+Esse é reportado aqui como um achado de \textbf{diagnóstico}: o sintoma
+observado (baixa taxa de aprovação) não indicava que o modelo gerador fosse
+incapaz de produzir itens corretos, mas que o prompt, como desenhado
+originalmente, impunha um conflito de objetivos evitável. A confirmação
+quantitativa em escala, à época deste diagnóstico ainda pendente, está
+agora disponível na Seção~\ref{sec:metricas-run}: sobre os 749
+\emph{attempts} da execução completa dos 239 itens, $9{,}1\%$ tiveram o
+\emph{blind-solve} do juiz discordando da letra alegada -- mas, como essa
+seção detalha, tais discordâncias são hoje, por construção, discordâncias
+de \textbf{conteúdo}, nunca de \textbf{posição}: a atribuição de posição
+tornou-se uma operação determinística pós-geração, estruturalmente incapaz
+de reproduzir a falha original. A hipótese é, portanto, confirmada, não
+apenas consistente com a evidência preliminar.
+
+\subsection{Um Segundo Ciclo: Controle de Comprimento como Método
+  Científico}
+\label{sec:segundo-ciclo}
+
+O acoplamento posição-conteúdo (acima) não foi o único achado
+arquitetural deste projeto -- apenas o primeiro. Um segundo ciclo completo
+de diagnóstico, correção e teste, conduzido no fechamento deste trabalho,
+segue exatamente a mesma lógica científica e é reportado aqui com o mesmo
+padrão de rigor: hipótese, teste, refutação quando aplicável, causa-raiz,
+nova hipótese fundamentada em literatura, novo teste, confirmação parcial
+com explicação de mecanismo.
+
+\paragraph{Hipótese 1 (R42) -- ordem dos campos do \emph{schema}.}
+\cite{tam2024speak} mostram que forçar um modelo a comprometer-se com uma
+resposta antes de sua justificativa causa colapso de acurácia específico
+por tarefa (por exemplo, $86{,}51\%\to23{,}44\%$ no GSM8K), e confirmam que
+a causa é estrutural -- a ordem literal dos campos no \emph{schema} JSON --
+não um artefato de \emph{parsing}. Uma auditoria de código encontrou
+exatamente essa inversão em \texttt{WAPLA\_AIG\_Engine.py}: o \emph{schema}
+\texttt{GeneratedItem} declarava \texttt{correct\_option} antes de
+\texttt{generator\_notes}, e \texttt{JudgeVerdict} declarava
+\texttt{blind\_solve\_shuffled\_label} antes de
+\texttt{blind\_solve\_reasoning} e \texttt{verdict} antes de
+\texttt{reasons} -- o oposto exato do que R42 exige, nos dois
+\emph{schemas}, nas duas direções. A correção reordenou os campos e,
+criticamente, os \emph{prompts} de sistema do gerador e do juiz (que ainda
+listavam a ordem antiga na instrução ``responda com exatamente estes
+campos'' -- a parte que de fato governa a ordem de geração sob decodificação
+em modo JSON simples, já que R44 / decodificação restrita por
+\emph{schema} não está em vigor).
+
+\paragraph{Teste 1 (Design C) -- refutado.} A hipótese natural seguinte foi
+que um alvo numérico de comprimento, calculado por item e injetado no
+\emph{prompt} (substituindo a instrução abstrata de ``$\pm 20\%$ da
+média''), reduziria a taxa de rejeição por viés de verbosidade. Testado em
+calibração pareada sobre os 30 itens de maior contagem de falhas
+estruturais: a taxa de aprovação permaneceu \textbf{idêntica}
+($33{,}3\%\to33{,}3\%$), e a taxa de opção correta como extremo de
+comprimento não melhorou ($82{,}9\%\to85{,}9\%$, se algo, piorou
+ligeiramente). Inspeção direta dos comprimentos gerados revelou a
+causa-raiz: o item 63 (aprovado) ficou $8$--$12$ palavras \emph{abaixo} do
+alvo em \textbf{todas} as cinco opções, e ainda assim passou, por sorte na
+dispersão relativa entre as cinco; o item 98 (rejeitado) chegou perto do
+alvo em $4$ das $5$ opções e mesmo assim falhou. A verificação mecânica
+(\texttt{check\_verbosity()}) não depende de nenhum valor absoluto -- ela
+testa apenas se a opção correta é o extremo estrito (máximo ou mínimo)
+entre cinco valores. Um alvo absoluto, por mais preciso que seja, não
+altera essa variável de decisão baseada em \emph{ranking}.
+
+\paragraph{Nova hipótese (R45), fundamentada em literatura nova.}
+\cite{xie2026length} demonstram que modelos de linguagem não conseguem
+manter um contador interno de \emph{tokens} de forma confiável (a
+autoatenção não possui um acumulador explícito), de modo que qualquer alvo
+absoluto de comprimento -- por mais preciso que seja -- está sujeito à
+mesma limitação. Sua técnica, CAPEL (\emph{Countdown-Aided Prompting for
+  Exact Length}), externaliza a contagem por meio de marcadores visíveis e
+decrescentes intercalados com as palavras geradas
+(ex.: \texttt{<5>Olá,<4>mundo!<3>Como<2>vai<1>você?<0>}), elevando o
+cumprimento estrito de comprimento no MT-Bench-LI de menos de $30\%$ para
+mais de $95\%$ com gpt-4.1. Este projeto adotou o mecanismo (Design D),
+generalizando-o -- de forma reconhecidamente não testada pelos autores
+originais -- para forçar paridade exata entre cinco campos JSON paralelos
+numa única chamada, em vez de um único texto contínuo.
+
+\paragraph{Teste 2 (Design D) -- confirmação parcial, com mecanismo
+  explicado.} Na mesma calibração pareada de 30 itens: a taxa de aprovação
+subiu de $33{,}3\%$ para $50{,}0\%$ ($+16{,}7$ pontos percentuais), e a
+taxa de extremo de comprimento caiu de $82{,}9\%$ para $76{,}7\%$ -- a
+primeira melhoria real observada nas duas tentativas. Mas o mecanismo
+\textbf{não} funciona de forma confiável: $77{,}3\%$ dos \emph{attempts}
+continham ao menos uma opção com sequência de marcadores malformada (cauda
+de marcadores vazios sem palavra entre eles: $105$ ocorrências; sequência
+incorreta/incompleta: $97$; texto residual após \texttt{<0>}: $35$) --
+nenhum caso de a instrução ser simplesmente ignorada. \texttt{phi-4} tenta
+executar o protocolo de contagem regressiva quase sempre, mas frequentemente
+o executa mal -- exatamente a ressalva que \cite{xie2026length} documentam
+para modelos menores ou mais protegidos por \emph{guardrails}
+(\texttt{o4-mini}, \texttt{gpt-4o-mini} no estudo original). A melhoria
+observada, portanto, não vem de o mecanismo funcionar de forma confiável,
+mas de uma minoria de execuções corretas ser suficiente para deslocar o
+resultado agregado -- uma intervenção imperfeita ainda tendo valor
+esperado positivo.
+
+\paragraph{Confirmação em escala.} A execução completa dos 239 itens
+(Seção~\ref{sec:metricas-run}) confirma a direção do Teste 2: taxa de
+extremo de comprimento de $73{,}2\%$ -- consistente com (na verdade,
+ligeiramente melhor que) o resultado da amostra de 30 itens, e
+mensuravelmente abaixo da linha de base pré-Design-D ($82{,}9\%$).
+
+\paragraph{O achado mais defensável desta seção: o piso estrutural de
+  $\sim$$40\%$.} Para cinco valores de comprimento gerados de forma
+independente e sem qualquer correlação entre comprimento e correção, o
+puro acaso já torna a opção correta o extremo estrito (máximo \emph{ou}
+mínimo) em $\sim$$40\%$ dos casos -- por simetria, $P(\text{é o máximo}) +
+P(\text{é o mínimo}) = 1/5 + 1/5 = 2/5$, para cinco valores distintos.
+Nenhuma correção do lado da geração pode levar a taxa de rejeição por
+extremo de comprimento a zero: esse é um piso combinatório, não um sintoma
+de viés. A taxa \emph{observada} nas execuções deste projeto -- $82{,}9\%$
+antes do Design D, $73{,}2\%$ depois, em escala completa -- fica bem acima
+desse piso em ambos os casos, o que é a evidência quantitativa de que
+existe, sim, um viés de verbosidade real e mensurável \emph{além} do ruído
+combinatório inevitável -- e que o Design D fechou uma fração real, mas
+parcial, desse excesso (de $\sim$$43$ pontos percentuais acima do piso
+para $\sim$$33$). Separar ``piso estatístico inevitável'' de ``viés
+corrigível'' é, em si, uma contribuição metodológica desta seção, não
+apenas uma nota de rodapé sobre os números.
+
+\paragraph{O custo, e a primeira medição de energia real do projeto.} A
+Seção~\ref{sec:green-ai-medido} documenta o primeiro número de energia
+real (não \emph{proxy} derivado de \emph{tokens}) já produzido por este
+projeto: $1{,}498$ kWh para os 239 itens, ou $16{,}1$ Wh por item aprovado
+-- aproximadamente a energia de \textbf{uma carga completa de um
+  smartphone}. O contraste é direto com a limitação já registrada na
+Seção~\ref{sec:green-ai}: a inferência via Groq permanece inteiramente
+não-mensurável a partir deste projeto; a inferência local via
+\texttt{vllm\_local}, motivada originalmente por conveniência de
+calibração, acabou por fechar -- ainda que apenas parcialmente, e apenas
+para essas execuções específicas -- a lacuna de Green AI que o restante do
+relatório precisou registrar como limitação.
+
+\section{Resultados}
+\label{sec:resultados}
+
+\subsection{Achados Estruturais da Análise Exploratória (EDA)}
+\label{sec:eda}
+
+A análise exploratória sobre os 239 itens rejeitados
+(\texttt{WAPLA\_EDA.ipynb}) identificou quatro defeitos estruturais
+quantificáveis, cada um ancorado a uma regra específica de
+\texttt{constitution.md}. Cada estatística abaixo é reportada com incerteza
+por \emph{reamostragem} (\emph{bootstrap}), nunca como uma estimativa
+pontual isolada, em conformidade com R34 \cite{saleva2025beyond}:
+
+\begin{itemize}
+\item \textbf{Viés de posição (R21, R16).} $P(\texttt{correct\_option} =
+  \text{``A''}) = 80{,}8\%$ (IC 95\% bootstrap $[75{,}7\%, 85{,}8\%]$) contra
+  um nível de chance de $20\%$; teste qui-quadrado de aderência ao uniforme:
+  $\chi^2 = 558{,}1$, $p = 1{,}82 \times 10^{-119}$.
+\item \textbf{Viés de verbosidade (R16, R22).} A opção correta é, em média,
+  $+2{,}29$ palavras mais longa que a média dos distratores (IC 95\%
+  bootstrap $[+1{,}74, +2{,}88]$; teste de Wilcoxon, $p = 3{,}64 \times
+  10^{-16}$); a opção correta é a mais longa em $49{,}8\%$ dos itens, contra
+  um nível de chance de $20\%$ \cite{haladyna2002review}.
+\item \textbf{Incompatibilidade com a Taxonomia de Bloom (R6--R11).} Usando o
+  texto cognitivo completo (enunciado + assertivas/afirmações), $96$ itens
+  ($40{,}2\%$) não contêm nenhum verbo canônico de nível de Bloom em lugar
+  algum do item; entre os itens com correspondência de verbo não ambígua, a
+  taxa de incompatibilidade entre o nível declarado e o nível inferido é de
+  $68{,}2\%$ \cite{haladyna2013developing}.
+\item \textbf{Formato de múltipla escolha estruturalmente ilegal.} $172$
+  itens ($72{,}0\%$) são declarados nos níveis Avaliar/Criar da Taxonomia de
+  Bloom, mas entregues em formato de resposta única de múltipla escolha --
+  estruturalmente ilegal sob R9, independentemente de qualquer outra
+  dimensão de qualidade.
+\end{itemize}
+
+\paragraph{Nota de escopo (em resposta a comentário de revisão).} A
+ilegalidade de MCQ para o nível Avaliar é mais debatível do que para o
+nível Criar. Na ordenação revisada de Bloom, Avaliar situa-se imediatamente
+acima de Analisar -- o nível MCQ-legal mais alto sob R9 -- enquanto Criar é
+o nível mais distante e mais claramente incompatível com um formato de
+resposta fechada \cite{chen2026automated}. A própria crítica de validade da
+taxonomia já citada nesta seção (concordância entre especialistas tão baixa
+quanto $34$--$77\%$ na classificação de nível cognitivo) sugere que
+fronteiras entre níveis adjacentes são empiricamente mais fluidas do que
+uma dicotomia limpa MCQ-legal/MCQ-ilegal presume
+\cite{haladyna2013developing}. R9 é mantida aqui como projetada -- a
+distinção continua estruturalmente operacionalizável, e o pipeline já a
+trata de forma menos rígida do que uma proibição simples: itens Avaliar/Criar
+são \emph{rebaixados} a Analisar antes da regeneração (Seção~\ref{sec:implicacoes}),
+não descartados -- mas esta nota registra explicitamente que Avaliar é o
+caso limítrofe da regra, não uma aplicação tão inequívoca quanto Criar.
+
+Em média, cada item carrega $2{,}27$ desses quatro sinalizadores estruturais
+simultaneamente (de um máximo de 4); apenas $4$ itens ($1{,}7\%$) não
+apresentam nenhum dos quatro -- ou seja, foram rejeitados por razões fora do
+escopo desses quatro checks estruturais (por exemplo, erro factual ou
+ambiguidade detectável apenas por um humano).
+
+\subsection{Métricas da Execução Completa (239 itens)}
+\label{sec:metricas-run}
+
+Execução completa do \emph{pool} de 239 candidatos sob o Design D
+(\texttt{constitution.md} R45), \texttt{vllm\_local/phi-4@8000}
+(gerador) + \texttt{vllm\_local/gpt-oss-20b@8001} (juiz),
+\texttt{cluster-node7}, \texttt{-{}-max-retries 4 -{}-concurrency 1}:
+
+A meta de $100$ itens aprovados foi atingida em duas passagens sobre o
+mesmo \emph{pool}, não em uma única execução -- reportadas separadamente
+abaixo, pois a segunda passagem opera sobre um subconjunto sistematicamente
+mais difícil (exatamente os itens que a primeira passagem não conseguiu
+aprovar), e sua taxa de aprovação isolada não deve ser confundida com a da
+primeira.
+
+\begin{itemize}
+\item \textbf{Primeira passagem (\emph{pool} completo, 239 itens):}
+  $93/239 = 38{,}9\%$ de aprovação (93 aprovados, 146 esgotaram as 4
+  tentativas e foram encaminhados ao \emph{pool} de reserva; 0 falhas por
+  instabilidade de infraestrutura).
+\item \textbf{Segunda passagem (subconjunto direcionado, top-40 dos 146
+  itens do \emph{pool} de reserva por contagem de falhas estruturais):}
+  $+10$ aprovados sobre 40 tentados, $25{,}0\%$ de aprovação -- taxa menor
+  que a primeira passagem, como esperado: este subconjunto é composto
+  exatamente pelos itens que já haviam resistido a 4 tentativas cada na
+  primeira passagem, um recorte sistematicamente mais difícil, não uma
+  amostra aleatória do \emph{pool} original.
+\item \textbf{Total final:} $100/100$ ($93+10=103$ aprovados ao longo das
+  duas passagens; $3$ acima da meta são retidos pelo \emph{cap} de
+  \texttt{select\_final\_100()} no arquivo entregue, não descartados como
+  erro -- apenas não incluídos no CSV final de 100 itens).
+\item \textbf{Distribuição de \texttt{correct\_option} nos 100 itens finais:}
+  A: $25{,}0\%$, B: $22{,}0\%$, C: $18{,}0\%$, D: $13{,}0\%$, E: $22{,}0\%$
+  -- razoavelmente próxima do alvo de $20\%$ por letra (R21); D permanece o
+  maior desvio remanescente, consistente com o já observado nos 93 itens
+  da primeira passagem, sem padrão sistemático aparente.
+\item \textbf{Histograma de tentativas até aprovação (primeira passagem):}
+  1 tentativa: 36 itens; 2: 27; 3: 19; 4: 11 -- a maioria dos itens
+  aprovados ($63/93$, $67{,}7\%$) resolveu em até 2 tentativas.
+\end{itemize}
+
+\paragraph{Nem todo item do \emph{pool} de reserva é recuperável por
+  repetição.} O item \texttt{18} foi tentado e rejeitado em
+\textbf{todas} as execuções realizadas neste projeto (primeira passagem,
+segunda passagem, e as calibrações do Design C/D que a precederam) pelo
+mesmo motivo: a transformada inversa de Laplace correta para o enunciado
+não corresponde a nenhuma das cinco opções fornecidas -- um erro de
+\emph{gabarito} nos dados de origem, não um defeito do pipeline. O juiz
+identifica esse item corretamente como factualmente insustentável em toda
+tentativa, independentemente de quantas vezes seja regenerado. Isso é, em
+si, um resultado informativo: o \emph{pool} de reserva contém tanto itens
+recuperáveis por variação estocástica de reamostragem quanto itens
+genuinamente irrecuperáveis por erro na fonte, e o pipeline rejeita
+persistentemente estes últimos em vez de forçá-los -- o comportamento
+honesto esperado de um filtro de qualidade, não uma falha de cobertura.
+
+\paragraph{Variabilidade do próprio auditor de viés de verbosidade.} A
+auditoria de confusão por verbosidade (R22/R25, Seção~\ref{sec:green-ai})
+é executada uma vez no início de cada sessão, contra o mesmo modelo-juiz
+(\texttt{vllm\_local/gpt-oss-20b@8001}). Na primeira passagem, o resultado
+foi ``\emph{clean}'' (nenhuma confusão detectada); na segunda passagem, o
+mesmo par de sondas produziu ``\textbf{CONFOUND DETECTED}''. Isso não é uma
+contradição entre as duas execuções -- é um dado real sobre a
+\textbf{própria instabilidade do auditor}: uma única sondagem por sessão,
+como R22/R25 especificam, está sujeita à mesma variabilidade de amostragem
+que qualquer chamada individual ao modelo, e um resultado ``\emph{clean}''
+numa sessão não garante o mesmo resultado na próxima. Registrado aqui por
+transparência, seguindo R31/R32: a auditoria detecta variabilidade
+real, não apenas ruído a ser ignorado, e uma futura iteração do pipeline
+se beneficiaria de rodar a sondagem $K\geq3$ vezes por sessão (o mesmo
+padrão de reamostragem já recomendado por R43) antes de reportar uma
+conclusão ``\emph{clean}'' ou ``\emph{confound detected}'' como estável.
+
+\paragraph{Verificação em escala do risco de empilhamento de restrições
+(R38).} A Seção~\ref{sec:green-ai-medido} e o Design D introduziram
+instruções adicionais no prompt do gerador (marcadores de contagem
+regressiva); o risco documentado por R38 é que restrições adicionais
+empilhadas numa mesma chamada degradem o cumprimento de \emph{outras}
+restrições já existentes. Medido diretamente sobre os 749 \emph{attempts}
+desta execução completa:
+\begin{itemize}
+\item Opção correta como extremo de comprimento (mecanismo já discutido na
+  Seção~\ref{sec:descoberta}): $73{,}2\%$ ($548/749$).
+\item Exclusividade mútua sinalizada: $13{,}9\%$ ($104/749$).
+\item Verbo de Bloom ausente: $\mathbf{3{,}1\%}$ ($23/749$).
+\item Rejeição pelo juiz (conteúdo/fatual): $9{,}1\%$ ($68/749$).
+\end{itemize}
+\textbf{Nota de correção metodológica:} uma verificação preliminar em
+amostra menor (30 itens, os de maior contagem de falhas estruturais)
+havia indicado $0\%$ de ausência de verbo de Bloom sob o Design D, sugerindo
+nenhuma degradação por R38. A execução completa (749 \emph{attempts}, acima)
+revela uma taxa real de $3{,}1\%$ -- pequena em termos absolutos, mas
+categoricamente diferente de zero, e a diferença só se tornou visível na
+escala completa. Esta correção é registrada aqui explicitamente, seguindo
+R31/R32 (nenhuma deriva silenciosa; um resultado que passa numa amostra
+pequena não é evidência de que a regra subjacente está correta em escala) --
+o achado preliminar de ``sem regressão'' não deveria ter sido tratado
+como definitivo antes da execução completa, e não o é.
+
+\paragraph{Validação do desacoplamento posição-conteúdo em escala.} A
+Seção~\ref{sec:descoberta} registrou, em verificação preliminar, que
+nenhuma rejeição por desalinhamento de posição havia sido observada até
+aquele ponto, mas reservou a confirmação quantitativa para esta execução
+completa. O dado correto, agora disponível, é mais preciso que ``zero
+discordâncias do juiz'': $68/749$ \emph{attempts} ($9{,}1\%$) tiveram o
+\emph{blind-solve} do juiz discordando da letra alegada como correta --
+isso é esperado e saudável (é exatamente o mecanismo que o protocolo
+R21/R23 existe para capturar: o juiz identificando, por mérito de
+conteúdo, que a opção correta genuína não é a que está na posição alegada).
+O que valida especificamente a correção do acoplamento posição-conteúdo
+não é a ausência de discordâncias do juiz, mas o fato de que a atribuição
+de posição em si (\texttt{apply\_position\_shuffle()}) é uma operação
+determinística de troca de \emph{strings} pós-geração, não mais uma
+instrução ao modelo -- portanto, estruturalmente, não pode falhar por
+``confusão'' do gerador sobre qual letra usar. As $68$ discordâncias
+observadas são, por construção, discordâncias de \textbf{conteúdo}, não de
+\textbf{posição} -- a distinção que a correção original (Seção
+\ref{sec:descoberta}) pretendia estabelecer.
+
+\subsection{Verificação de Diversidade entre Itens (R41)}
+\label{sec:diversidade}
+
+Cada um dos 100 itens finais entregues passa por verificação de validade
+\emph{individualmente} -- posição, verbosidade, exclusividade mútua,
+verbo de Bloom, julgamento pelo juiz --, mas nenhuma dessas verificações
+compara itens \emph{entre si}. \cite{zhang2026survey} catalogam essa lacuna
+explicitamente: um lote pode ser válido item a item e ainda assim falhar
+por redundância cruzada entre itens, e propõem a similaridade de cosseno
+média entre pares (\emph{Self-CosSim}) como métrica padrão para
+detectá-la -- a base de \texttt{constitution.md} R41.
+
+\paragraph{Metodologia.} Similaridade de cosseno par a par sobre vetores
+TF-IDF dos enunciados (\texttt{stem}) dos 100 itens aprovados, implementada
+em \texttt{tools/diversity\_check\_r41.py} (\emph{script} independente,
+não integrado ao \emph{pipeline} de geração -- uma auditoria posterior,
+não um portão de aceitação).
+
+\paragraph{Resultado.} Sobre $4.950$ pares comparados:
+\begin{itemize}
+\item \textbf{Similaridade média entre pares (Self-CosSim): $0{,}0607$} --
+  baixa, consistente com um lote predominantemente diverso.
+\item \textbf{1 par acima do limiar de quase-duplicata ($0{,}85$):}
+  \texttt{question\_id 528} e \texttt{question\_id 26} (similaridade
+  $0{,}857$), ambos de Geografia Econômica, formato Afirmação Incompleta.
+  Inspeção direta confirma que \textbf{não} é falso positivo: os dois
+  enunciados são variações quase literais um do outro (\emph{``Nesse
+    contexto, ao analisar a Geografia [E/e]conômica, é correto afirmar que
+    ela estuda...''}) -- um item é essencialmente uma versão truncada do
+  outro. Ambos passaram individualmente em toda verificação mecânica e no
+  juiz; nenhuma delas compara itens entre si, então nenhuma poderia
+  detectar essa redundância.
+\end{itemize}
+
+Este é exatamente o tipo de falha que R41 existe para capturar e que as
+verificações por item (R9--R16, R21--R26) estruturalmente não conseguem:
+um lote pode ser válido item a item e ainda assim redundante entre itens.
+A verificação aqui reportada é uma auditoria posterior ao \emph{pipeline},
+não uma etapa de rejeição automática -- integrá-la como portão de aceitação
+(reprocessar um dos dois itens, ou substituí-lo pelo \emph{pool} de
+reserva) permanece como trabalho futuro, não implementado nesta entrega.
+
+\section{Evidências}
+\label{sec:evidencias}
+
+As figuras a seguir foram produzidas por \texttt{WAPLA\_EDA.ipynb} e
+salvas em \texttt{output/}; não são recriadas aqui, apenas referenciadas, e
+seguem o padrão de figura de \cite{rougier2014rules} adotado por
+\texttt{spec.md} Seção~6.5 (\emph{colormap} perceptualmente apropriado,
+eixos não truncados, legendas autocontidas).
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=.85\textwidth]{../output/03_position_bias.png}
+\caption{Viés de posição: distribuição de \texttt{correct\_option} no corpus
+  rejeitado e por \texttt{question\_type}.}
+\label{fig:posicao}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=.85\textwidth]{../output/02_verbosity_bias.png}
+\caption{Viés de verbosidade: comprimento da opção correta vs.\ distratores
+  e distribuição da diferença de comprimento.}
+\label{fig:verbosidade}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=.7\textwidth]{../output/02b_verbosity_bias_by_question_type.png}
+\caption{Viés de verbosidade desagregado por tipo de questão.}
+\label{fig:verbosidade-tipo}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=.85\textwidth]{../output/04_bloom_confusion_matrix.png}
+\caption{Matriz de confusão entre o nível de Bloom declarado e o nível
+  inferido a partir do verbo do texto cognitivo completo.}
+\label{fig:bloom}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=.7\textwidth]{../output/05_r9_format_violation.png}
+\caption{Nível de Bloom declarado, por compatibilidade com o formato de
+  múltipla escolha.}
+\label{fig:r9}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=.7\textwidth]{../output/06_composite_flaw_count.png}
+\caption{Contagem composta de falhas estruturais coocorrentes por item.}
+\label{fig:composto}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=.85\textwidth]{../output/01_overview_distributions.png}
+\caption{Visão geral dos metadados estruturais do corpus rejeitado:
+  distribuição de \texttt{question\_type} e de \texttt{taxonomy\_level}
+  declarado.}
+\label{fig:overview}
+\end{figure}
+
+\section{Implicações para as 100 Questões Finais}
+\label{sec:implicacoes}
+
+Cada achado da Seção~\ref{sec:eda} foi diretamente operacionalizado no
+pré-filtro mecânico e na lógica de seleção do pipeline de reparo, não apenas
+reportado como diagnóstico passivo:
+
+\begin{itemize}
+\item O \emph{pool} de candidatos é ordenado por
+  \texttt{structural\_flaw\_count} decrescente (produzido pela EDA em
+  \texttt{flaw\_summary.csv}), de modo que os itens mais severamente
+  defeituosos são priorizados primeiro para reparo.
+\item O achado de viés de posição (Figura~\ref{fig:posicao}) é
+  operacionalizado por \texttt{assign\_target\_letters()} (atribuição
+  balanceada e programática da letra correta, R21) combinada com a correção
+  descrita na Seção~\ref{sec:descoberta}, que garante que esse balanceamento
+  não force o gerador a sacrificar correção de conteúdo.
+\item O achado de viés de verbosidade (Figuras~\ref{fig:verbosidade}
+  e~\ref{fig:verbosidade-tipo}) é operacionalizado por
+  \texttt{check\_verbosity()}, com limiar de coeficiente de variação de
+  $0{,}35$ sobre o comprimento das opções.
+\item O achado de incompatibilidade com a Taxonomia de Bloom
+  (Figura~\ref{fig:bloom}) é operacionalizado por
+  \texttt{check\_bloom\_verb()} (R10), exigindo que o texto cognitivo do
+  item contenha um verbo do banco de verbos do nível-alvo.
+\item O achado de $72\%$ dos itens em nível Avaliar/Criar entregues em
+  formato ilegal para múltipla escolha (Figura~\ref{fig:r9}) é
+  operacionalizado por \texttt{determine\_target\_level()}, que rebaixa
+  itens R9-ilegais para o nível Analisar antes da regeneração -- já que o
+  esquema da competição exige um formato de resposta única.
+\item A exigência de exclusividade mútua entre opções \emph{dentro de um
+  mesmo item} (R12, R13) é operacionalizada por
+  \texttt{check\_mutual\_exclusivity()} via similaridade de Jaccard par a
+  par entre opções de texto livre; para os formatos \emph{Múltipla Escolha
+  Complexa} e \emph{Asserção-Razão}, a exclusividade é garantida por
+  construção (opções geradas por template combinatório sobre enunciados
+  numerados), seguindo a recomendação de \cite{bailey2025exploring} de que
+  exclusividade mútua não deve depender apenas de instrução ao LLM, mas de
+  verificação mecânica independente. \cite{inep2026guia} \S3.3.11 trata de
+  uma exigência distinta e complementar -- independência \emph{entre
+  itens} (nenhum item pode depender da resposta de outro item, nem
+  revelá-la) --, não da exclusividade mútua \emph{intra-item}
+  operacionalizada por \texttt{check\_mutual\_exclusivity()}; uma versão
+  anterior deste relatório atribuía a essa mesma seção uma formulação de
+  exclusividade intra-item que ela não contém, e essa atribuição é
+  corrigida aqui.
+\end{itemize}
+
+A lacuna de checagem de leniência humana (Seção~\ref{sec:desvios}, item~3) e
+o afastamento do princípio Green AI (Seção~\ref{sec:green-ai}) permanecem
+como limitações reconhecidas e reportadas deste pipeline, não como pontos
+silenciosamente resolvidos -- em conformidade com o requisito de divulgação
+de falhas conhecidas ao lado de métricas agregadas de sucesso (R33).
+
+\subsection{Limitação Reconhecida: Calibração {IRT} (§4.4) Fora de Escopo}
+
+\texttt{spec.md} Seção~4.4 exige, para qualquer item considerado plenamente
+validado, calibração ao nível de Teoria de Resposta ao Item (dificuldade e
+discriminação, no mínimo -- R27), não apenas os quatro \emph{checks}
+estruturais e o julgamento binário de aprovação/rejeição implementados neste
+pipeline. Essa camada \textbf{não foi implementada} nesta entrega, por não
+existir ainda um \emph{pool} de respondentes (humanos ou LLM) sobre o qual
+calibrar \cite{liu2025leveraging}. Isso é reportado aqui como uma limitação
+reconhecida, não uma omissão silenciosa.
+
+\section*{Uso de IA Generativa}
+\label{sec:uso-ia}
+
+Em conformidade com o Código de Conduta para Autores em Publicações da SBC,
+declara-se o uso de ferramentas de Inteligência Artificial (IA) Generativa
+neste trabalho em dois níveis: (i)~como parte central da metodologia
+investigada -- os modelos Groq (\texttt{openai/gpt-oss-20b},
+\texttt{qwen/qwen3.6-27b}) foram usados como \emph{Generator} e \emph{Judge
+  Agents} no próprio pipeline de reparo de itens, conforme descrito na
+Seção~\ref{sec:metodologia} (Metodologia); e (ii)~como assistente de
+escrita e revisão na elaboração deste relatório e do código do pipeline
+(Claude, Anthropic). Nenhuma ferramenta de IA é listada como autora, e a
+responsabilidade integral pelo conteúdo, incluindo qualquer verificação de
+plágio, é dos autores humanos.
+
+\bibliographystyle{sbc}
+\bibliography{relatorio_tecnico}
+
+\end{document}
