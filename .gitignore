@@ -20,3 +20,4 @@ relatorio/sbc.bst
 .claude/
 /relatorio_tecnico.tex
 .claude/
+literatura/**/*.pdf
