@@ -355,10 +355,19 @@ R14--R16 &
   Rubricas, limiar de \emph{item-writing-flaws} &
   Fora de escopo &
   Dataset da competição não inclui geração de rubricas. \\
-R17--R20 (\S IV) / \S4.1, \S4.2 passo~1 &
-  Dados sintéticos, curador CLLM treinado sobre dinâmica de aprendizagem &
-  Desviado &
-  Pré-filtro mecânico substitui o curador treinado (Desvio~1). \\
+R17--R19 (\S IV) &
+  Dados sintéticos reais de estudantes; validação conjunta de fidelidade e
+  privacidade; preferência por modelo congelado em contexto sobre
+  \emph{fine-tuning} &
+  Fora de escopo &
+  Nenhum dado sintético de estudante chega a este \emph{pipeline}; a
+  entrega reescreve itens já existentes, não gera dados de aprendizagem
+  do zero. \\
+R20 (\S IV) / \S4.1, \S4.2 passo~1 &
+  Curador CLLM treinado sobre dinâmica de aprendizagem &
+  Implementado &
+  Pré-filtro mecânico (posição, verbosidade, exclusividade, verbo de
+  Bloom) substitui o curador treinado (Desvio~1). \\
 R21, R23, R26 (\S V) / \S4.2.1 passos~1,3,4 &
   Decorrelação de viés de posição; separação arquitetural gerador/juiz &
   Parcial &
@@ -380,8 +389,80 @@ R27--R30 (\S VI) / \S4.4 &
 R31--R34 (\S VII) / \S6.4, \S6.6 &
   Rigor de engenharia, relato estatístico, \emph{spec-anchoring} &
   Implementado &
-  Bootstrap/IC em toda a EDA (R34); desvios registrados (R31), inclusive
-  o Desvio~4, identificado nesta auditoria. \\
+  Bootstrap/IC em toda a EDA satisfaz R34 integralmente; desvios
+  registrados (R31), inclusive o Desvio~4, identificado nesta auditoria.
+  \textbf{Ressalva de conformidade parcial:} as comparações de calibração
+  do mesmo dia entre configurações do \emph{pipeline}
+  (r42fix/design\_c/design\_d, $n=30$ cada, sem \emph{bootstrap}),
+  apresentadas na Seção~\ref{sec:descoberta}, \textbf{não} satisfazem R34
+  por si mesmas -- apenas as estatísticas de \emph{bootstrap} da EDA o
+  fazem. \\
+R35--R36 (\S VIII) &
+  Dificuldade via TRI \emph{simulate-then-fit} (nunca julgamento direto
+  de um LLM); seleção de modelo respondente não enviesada para o mais
+  forte &
+  Fora de escopo &
+  Nenhum código de simulação de respondentes ou ajuste de TRI existe
+  neste \emph{pipeline}; depende do mesmo \emph{pool} de respondentes
+  ausente de R27--R30 (Fase~10 de \texttt{plan.md}, nunca implementada). \\
+R37 (\S IX) &
+  \emph{Proxy} de energia auditável para inferência \emph{black-box} &
+  Implementado &
+  Medição real de potência via \texttt{nvidia-smi} a cada 2s
+  (\texttt{tools/energy\_sampler.sh}) + integração trapezoidal:
+  $1{,}498$ kWh sobre os 93 itens da primeira passada
+  (\S\ref{sec:green-ai-medido}). \\
+R38 (\S X) &
+  Nenhuma restrição em \emph{prompt} multi-restrição pode ser assumida
+  satisfeita pela ordem em que aparece &
+  Implementado &
+  O pré-filtro mecânico verifica cada restrição (posição, verbosidade,
+  exclusividade, verbo de Bloom) de forma independente e posterior à
+  geração, nunca assumindo satisfação pela ordem do \emph{prompt}; esta é
+  a própria generalização do achado descrito na
+  Seção~\ref{sec:descoberta}. \\
+R39 (\S XI) &
+  \emph{Corpus} de origem para auditoria de dados sintéticos &
+  Fora de escopo &
+  Nenhum \emph{corpus} de dados sintéticos de estudantes existe neste
+  projeto para auditar. \\
+R40 (\S XI) &
+  Gabarito nunca aceito apenas pela afirmação do Gerador/Juiz; exige
+  re-derivação por autoconsistência resampleada &
+  Fora de escopo &
+  Modo padrão (\texttt{n\_reorderings=1}), usado em toda execução real,
+  faz uma única derivação sem taxa de concordância reportada; o
+  mecanismo de 10 reordenações (\texttt{--rigorous-position-check})
+  poderia produzir algo equivalente, mas nunca foi acionado em nenhuma
+  execução real. \\
+R41 (\S XI) &
+  Diversidade/redundância entre itens do lote entregue &
+  Auditoria independente pós-hoc &
+  \texttt{tools/diversity\_check\_r41.py}, não integrado ao
+  \emph{pipeline} de seleção (\S\ref{sec:diversidade}); 1
+  quase-duplicata identificada (\texttt{question\_id} 528/26) entre
+  4.950 pares. \\
+R42 (\S XII) &
+  Ordem dos campos de \emph{schema}: justificativa antes do veredito &
+  Implementado (corrigido v0.9) &
+  \texttt{GeneratedItem}/\texttt{JudgeVerdict} e o texto dos dois
+  \emph{system prompts} corrigidos juntos -- a correção apenas do
+  \emph{schema} Pydantic era insuficiente sob geração em modo JSON. \\
+R43--R44 (\S XII) &
+  Consistência do juiz por múltiplas passagens; decodificação restrita
+  por \emph{schema} &
+  Fora de escopo &
+  Nenhum código de resample multi-passagem do juiz (R43) nem de
+  decodificação restrita por \emph{schema} (R44,
+  \texttt{guided\_json}) existe neste \emph{pipeline}. \\
+R45 (\S XIII) &
+  Controle de comprimento exato via marcadores de contagem regressiva &
+  Implementado &
+  \emph{Design D}: \texttt{strip\_countdown\_markers()} +
+  \texttt{describe\_countdown\_malformation()}; melhora real de
+  $33{,}3\%$ para $50{,}0\%$ de aprovação na calibração isolada, com
+  taxa de malformação de marcadores de $77{,}3\%$
+  (\S\ref{sec:descoberta}). \\
 \S5 (Green AI / roteamento SLM-MLM-LLM) &
   Roteamento sensível a energia/custo, seleção Pareto &
   Fora de escopo &

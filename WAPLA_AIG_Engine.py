@@ -254,14 +254,17 @@ def build_cognitive_text(row: dict) -> str:
 
 
 def compute_target_word_count(row: pd.Series) -> Optional[int]:
-    """Design C (length-parity prompt, replacing the abstract '+-20% of the
-    mean' instruction): derive a single concrete word-count target from
-    THIS item's own original five options, before generation, so the
-    target reflects this item's natural scope rather than an arbitrary
-    constant. All five rewritten options are told to hit the SAME target
-    (parity, not variety) -- see build_generator_messages' ALVO DE
-    COMPRIMENTO line. Returns None if the original options aren't
-    available (falls back to no injected target)."""
+    """Derive a single concrete word-count target from THIS item's own
+    original five options, before generation, so the target reflects this
+    item's natural scope rather than an arbitrary constant. All five
+    rewritten options are told to hit the SAME target (parity, not
+    variety). Originally built for the soft numeric-target approach that
+    predates constitution R45; that approach was superseded by R45's
+    countdown-marker mechanism, but this target computation was kept and
+    is still called from process_item() to supply the shared target that
+    the countdown markers (build_generator_messages' ALVO DE CONTAGEM
+    REGRESSIVA line) count down to. Returns None if the original options
+    aren't available (falls back to no injected target)."""
     lengths = [len(str(row.get(col)).split())
                for col in ("option_a", "option_b", "option_c", "option_d", "option_e")
                if pd.notna(row.get(col))]
@@ -271,12 +274,15 @@ def compute_target_word_count(row: pd.Series) -> Optional[int]:
 
 
 def describe_word_count_violations(item: "GeneratedItem", target: int, tolerance: int = 2) -> list[str]:
-    """Design C's feedback-loop half: reports the EXACT numeric miss per
-    option against the target computed by compute_target_word_count(),
-    independent of and additional to check_verbosity()'s own pass/fail
-    reasons (that function is deliberately left unchanged -- this is a
-    generation-side prompt aid, not a filter change). Only meaningful for
-    the 'standard' format, where option text is actually LLM-authored."""
+    """Reports the EXACT numeric miss per option against the target
+    computed by compute_target_word_count(), independent of and additional
+    to check_verbosity()'s own pass/fail reasons (that function is
+    deliberately left unchanged -- this is a generation-side prompt aid,
+    not a filter change). Called with tolerance=2 by the pre-R45 soft
+    target and with tolerance=0 by constitution R45's exact countdown
+    target (see process_item()'s mechanical_reject branch) -- same
+    function, two different tolerance regimes. Only meaningful for the
+    'standard' format, where option text is actually LLM-authored."""
     lo, hi = target - tolerance, target + tolerance
     violations = []
     for col in ("option_a", "option_b", "option_c", "option_d", "option_e"):
@@ -1369,7 +1375,7 @@ def build_generator_messages(row: pd.Series, target_letter: str, target_level: s
         )
     if target_word_count is not None and forced_options is None and assertion_pattern is None:
         task_params.append(
-            f"ALVO DE CONTAGEM REGRESSIVA (Design D -- mesmo alvo EXATO para as "
+            f"ALVO DE CONTAGEM REGRESSIVA (Design D, constitution R45 -- mesmo alvo EXATO para as "
             f"cinco opções, veja o formato de marcadores na Regra 1 do system "
             f"prompt): {target_word_count} palavras por opção, EXATAS -- gere "
             f"option_a, option_b, option_c, option_d e option_e cada uma com a "
@@ -1544,10 +1550,11 @@ def _mock_generator_response(user_content: str) -> str:
     simulate_judge_flaw = (not has_feedback) and 3 <= bucket < 5
     is_cursed = bucket == 19
 
-    # Fixed-length templates (verified equal word count regardless of
-    # discipline length, see scratchpad verification) so the CLEAN mock
-    # path passes check_verbosity by construction; only the deliberately
-    # simulated-flaw branch below should ever trip that check.
+    # Fixed-length templates (manually verified during development to have
+    # equal word count regardless of discipline length; not covered by an
+    # automated test) so the CLEAN mock path passes check_verbosity by
+    # construction; only the deliberately simulated-flaw branch below
+    # should ever trip that check.
     base_texts = {
         "A": f"{_CORRECT_MARKER} os princípios centrais relativos a {discipline}.",
         "B": f"ignora por completo um aspecto central de {discipline}.",
