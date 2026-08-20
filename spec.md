@@ -836,3 +836,15 @@ forward as implementation-time or future-research questions rather than
   document. A real architectural write-up for R42–R45 (where in the
   Generator/Judge Agent pipeline each belongs, per this document's own
   §4 structure) remains future work.
+- v0.9 (2026-08-19, R45 status correction): the v0.8 entry above
+  understated R45 — "partial, non-conclusive results" was accurate as of
+  that entry's own date, but Design D's calibration was completed the
+  same day: 33.3%→50.0% approval on a paired 30-item sample (+16.7
+  points), confirmed directionally at full 239-item production scale
+  (length-extreme rate 73.2%, down from an 82.9% pre-Design-D baseline).
+  The mechanism is real but unreliable per-attempt (77.3% marker
+  malformation rate) — "conclusive" in the sense of a measured, repeated
+  effect, not a fully solved problem. See `constitution.md`'s matching
+  v0.13 entry for the full accounting; the architectural write-up gap
+  noted in v0.8 above (no section-level home for R42–R45 in this
+  document) remains open and is not addressed by this entry.

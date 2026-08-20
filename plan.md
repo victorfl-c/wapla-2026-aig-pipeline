@@ -490,3 +490,11 @@ itself is maintained going forward.
   quiet rewrite. See `constitution.md`'s v0.9–v0.12 entries for the full
   audit trail, and `spec.md`'s matching v0.8 entry (which discloses the
   same gap from the architecture-document side).
+- v0.10 (2026-08-19, R45 status correction): unlike R43/R44, R45 (Design D,
+  countdown-marker exact length control) genuinely was implemented and
+  calibrated — 33.3%→50.0% approval on a paired 30-item sample, confirmed
+  directionally at full 239-item production scale (length-extreme rate
+  73.2%, down from 82.9% pre-Design-D), with a 77.3% marker-malformation
+  rate disclosing that the mechanism is real but unreliable per-attempt.
+  See `constitution.md`'s matching v0.13 entry and `spec.md`'s matching
+  v0.9 entry for the full accounting.

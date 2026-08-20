@@ -631,6 +631,37 @@ causal attribution clean.
 
 ## 9. Detailed Methodology for Notebook Update (Staged, Not Yet Applied)
 
+> ✅ **RESOLVED (2026-08-20, before notebook rebuild) — was a blocking
+> flag; now fixed and confirmed.**
+>
+> **Confirmed final deliverable:** `output/entregavel_2_100_questoes_qwen_validated.csv`
+> is the canonical final deliverable — named as such in `relatorio_tecnico.tex`
+> ("o arquivo final entregue", lines ~419–420 and ~535–536), the newer of
+> the two candidate files (mtime 2026-08-19 18:33 vs.
+> `entregavel_2_100_questoes_design_d_full.csv`'s 03:52 the same day, ~14.5h
+> earlier), and matches commit `2af972f`'s message ("new final deliverable:
+> entregavel_2_100_questoes_qwen_validated.csv"). Both files check out
+> clean: 100 data rows each, 0 duplicate `question_id`s in either.
+>
+> **The gap that was found:** `qwen_validated.csv` had never actually been
+> committed to git — `.gitignore`'s `output/*.csv` blanket rule only had an
+> exception for the *old* `..._design_d_full.csv` (line 15), not this one.
+> An oversight, not an intentional exclusion, per explicit user decision.
+>
+> **Fix applied:** added `!output/entregavel_2_100_questoes_qwen_validated.csv`
+> and `!output/aig_audit_trail_qwen_remediation.jsonl` to `.gitignore`
+> (mirroring the existing exception pattern for the old CSV), then
+> committed both files plus the audit trail as commit `8281d04` ("Track the
+> real final deliverable CSV (qwen_validated), previously untracked due to
+> .gitignore oversight"), on top of `f6e9156`. Verified via
+> `git ls-files output/`: both `entregavel_2_100_questoes_design_d_full.csv`
+> (first pass) and `entregavel_2_100_questoes_qwen_validated.csv` (final
+> pass) are now tracked, alongside `aig_audit_trail_qwen_remediation.jsonl`.
+>
+> **The notebook rebuild may now proceed using
+> `entregavel_2_100_questoes_qwen_validated.csv` with full confidence as
+> the canonical final deliverable.**
+
 **Purpose:** `relatorio_tecnico.tex` was cut aggressively on 2026-08-20 to
 fit the SBC page limit (single-column template, not two-column as
 originally assumed — see Amendment Log v1.3). The full, uncut narrative
@@ -1078,3 +1109,170 @@ aggregate, not reliably per-attempt.
   attempted tonight; tonight's deadline was the report only. §9.5 scopes
   that future notebook work explicitly so it isn't attempted piecemeal
   or forgotten.
+- v1.4 (2026-08-20): Confirmed `entregavel_2_100_questoes_qwen_validated.csv`
+  is the true final deliverable content-wise (named as such in
+  `relatorio_tecnico.tex`, newer by ~14.5h, and matches commit `2af972f`'s
+  message) — but found it had never been committed to git (excluded by
+  `.gitignore`'s `output/*.csv` rule, which only re-included the old
+  `..._design_d_full.csv`). Per explicit user decision (an oversight, not
+  intentional untracking), added a matching `.gitignore` exception plus
+  one for `aig_audit_trail_qwen_remediation.jsonl`, and committed both
+  files as `8281d04`. §9's blocking flag is now marked resolved; the
+  notebook rebuild proceeds using `entregavel_2_100_questoes_qwen_validated.csv`
+  as the confirmed canonical deliverable.
+- v1.5 (2026-08-20, `SPEC_notebook_final.md` executed): rebuilt
+  `notebooke091850abb.ipynb` as the final Kaggle submission artifact,
+  per the spec's full checklist:
+  - **New "Rule Reference" section** (3 markdown cells, right after the
+    intro) covering all 45 constitution.md rules in plain language, with
+    status sourced directly from `constitution.md`'s own inline notes —
+    not a paraphrase from memory.
+  - **AIG-7 rebuilt**: `GENERATOR_SYSTEM_PROMPT`/`JUDGE_SYSTEM_PROMPT` and
+    `build_generator_messages`/`build_judge_messages` replaced with the
+    exact current `WAPLA_AIG_Engine.py` versions (Design D included, rule
+    citations already stripped from the LLM-facing text) — extracted
+    directly from the engine file via line-range slicing and verified
+    byte-identical by executing both the notebook cell and the real
+    engine module side by side (only intentional diff: `build_generator_
+    messages`'s task_params string still says "Design D, constitution R45"
+    in the shipped engine — a leftover the earlier prompt-cleanup pass
+    missed because it only touched the two system-prompt constants, not
+    this per-call user-message builder; cleaned to just "Design D" in the
+    notebook's copy, `WAPLA_AIG_Engine.py` itself left untouched per this
+    task's no-behavior-change constraint — flagged here as a small
+    residual finding, not fixed at the source).
+  - **New Design D markdown + code cells** (`strip_countdown_markers()`,
+    `describe_countdown_malformation()`, `compute_target_word_count()`)
+    with the honest 33.3%→50.0%/77.3%-malformation numbers and the
+    Design C refutation — verified functionally identical to the engine
+    via direct comparison, not just visual inspection.
+  - **AIG-4 schemas fixed**: `GeneratedItem`/`JudgeVerdict` field order was
+    still R42-*violating* in the pre-existing notebook (`correct_option`
+    before `generator_notes`; `blind_solve_shuffled_label` before
+    `blind_solve_reasoning`; `reasons` after `verdict`) — corrected to
+    match the real engine, with a markdown note explaining why (Tam et al.
+    2024, the same finding already cited elsewhere in this project).
+  - **AIG-9/AIG-12 updated**: `generator_agent()`/`process_item()` now
+    thread Design D's `target_word_count` through and log countdown
+    malformation to the audit trail (diagnostic only, never gates
+    acceptance) — extracted from the engine and patched via targeted,
+    verified string replacement, not hand-retyped.
+  - **AIG-15 rewritten**: documents all three real generator/judge
+    configurations this pipeline actually ran (original Groq conception;
+    phi-4+gpt-oss-20b production run; gpt-oss-20b+qwen3.6-27b post-
+    submission validation), with the active variables set to the
+    stage-3 configuration that produced the final deliverable.
+  - **New "Post-Submission Refinement" section**: motivation (R43's gap,
+    Rating Roulette/SURE literature), the 27%/50% cross-judge finding with
+    the verbatim boilerplate quotes from §9.3 above, the correction
+    (23 demoted, 43 regenerated, 7 backfilled, 70/22/8 final composition),
+    the R41 re-check (before/after Self-CosSim), and a short Scalable
+    Oversight framing (Irving 2018, Kenton 2024).
+  - **Final Results rebuilt**: now loads `entregavel_2_100_questoes_qwen_
+    validated.csv` (not `design_d_full.csv`), with the real headline
+    numbers (93/239=38.9%+10/40=25.0%, 1.498 kWh/16.1 Wh-per-item, the
+    cross-judge 27%/50% finding) always printed regardless of which local
+    files are attached — since no single audit trail spans both the
+    original run and the remediation pass, the attempts-histogram uses the
+    original production run's trail with an explicit note about that
+    scope limit.
+  - **New "Specification Coverage Table"** (25-row pre-consolidation
+    version, recovered via `git show 2af972f:relatorio/relatorio_tecnico.tex`
+    per §9.4's own instruction, translated to English) and **"Document
+    Mapping"** table added before/after "Deliverable 3."
+  - **Verification**: every code cell across all 92 cells parses
+    (`ast.parse`); the two riskiest hand-ported blocks (prompts, Design D
+    helpers) were executed and diff-checked against the real
+    `WAPLA_AIG_Engine.py` module directly, not just read visually. A full
+    sequential dry-run execution (`DRY_RUN=True`, real HF dataset load,
+    real network) was attempted as the closing verification step — see
+    the next entry for its outcome once complete.
+  - **Self-caught error, disclosed per this project's established
+    practice**: an early attempt to append the R45 status correction to
+    `spec.md` via a quick Python one-liner had a `content[:-0]` typo
+    (`-0 == 0` in Python, so the slice was empty) that silently
+    **truncated `spec.md` from 838 lines to 12** — caught immediately by
+    a routine `wc -l` sanity check before packaging the Kaggle folder,
+    restored in full from this conversation's own earlier verbatim read of
+    the file (no data was actually lost, since the full content was still
+    in-context), and the append redone correctly via direct file I/O.
+    Flagging this explicitly rather than quietly fixing it, matching this
+    project's established standard for self-caught mistakes.
+  - **Doc sync**: `constitution.md` (new inline R45 implementation-status
+    note + v0.13 Amendment Log entry), `spec.md` (v0.9 entry correcting
+    the stale "partial, non-conclusive" R45 characterization), and
+    `plan.md` (matching v0.10 entry) all now agree that R45/Design D is
+    implemented and calibrated, not merely "proposed" or "partial."
+- v1.6 (2026-08-20, dry-run verification result — real bug found and
+  fixed): the closing `DRY_RUN=True` verification (v1.5 above) initially
+  ran clean across all 92 cells (`ast.parse` + real sequential execution,
+  real HF dataset load, real network) but an explicit smoke test that
+  actually exercised `RUN_PIPELINE_NOW=True` (the real generator→pre-
+  filter→judge→backfill loop under the mock) came back **0/6 approved**,
+  every attempt failing with `'NoneType' object has no attribute 'group'`.
+  Root cause: the notebook's `_mock_generator_response()` (AIG-8) still
+  read `TARGET_LETTER: (\w)` out of the generator prompt — but the
+  *current* `build_generator_messages()` (position-content decoupling)
+  never puts `TARGET_LETTER` in that prompt anymore; the generator always
+  writes the correct answer as `option_a`, and `apply_position_shuffle()`
+  relocates it mechanically afterward, entirely outside the prompt.
+  **This exact same bug was verified present in the currently-shipped
+  `WAPLA_AIG_Engine.py` itself** (`_mock_generator_response`, identical
+  regex, identical crash — confirmed by directly running `python
+  WAPLA_AIG_Engine.py --dry-run --pool-size 3` and observing 0% approval
+  with `'NoneType' object has no attribute 'group'` on every attempt) —
+  meaning **`--dry-run` mode on the shipped competition script is
+  currently broken**, and has been since whichever change removed
+  `TARGET_LETTER` from the prompt (a `git blame`/`git log -p` on that one
+  line would date it precisely, not yet done). Per this task's explicit
+  scope boundary ("não tocar em `WAPLA_AIG_Engine.py` de forma que mude
+  comportamento"), **only this notebook's copy of the mock was fixed**
+  (rewritten to always place the correct content at `A`, matching the
+  real Rule 2 behavior, with a stable per-item hash — trimmed of any
+  appended feedback text — replacing the old `(discipline, target_letter,
+  target_level)` bucket key since `target_letter` is no longer available
+  to the mock at all) — `WAPLA_AIG_Engine.py` itself was left untouched
+  and this bug remains live there. **Flagging this prominently for the
+  user's own decision**: fixing the shipped script's `--dry-run` mock is
+  a trivial, behavior-isolated change (the mock only runs under
+  `--dry-run`, never in a real API run) but is a genuine, separate fix
+  the user should explicitly authorize, not something bundled silently
+  into a "notebook rebuild" task. After the notebook's mock fix, the same
+  smoke test (pool_size=6) passed 6/6 approved with a normal
+  attempts-histogram and `correct_option` distribution — confirmed
+  working, not just non-crashing.
+  - **Side effect found and reverted**: running the notebook's real EDA
+    cells (Deliverable 1) in this sandboxed verification environment —
+    which has no `pt_core_news_sm` spaCy model installed — silently used
+    the regex-based Bloom-verb-extraction fallback instead of the real
+    spaCy path the original committed analysis used, and in doing so
+    **overwrote 7 committed, git-tracked EDA output files**
+    (`output/01_overview_distributions.png` through
+    `output/06_composite_flaw_count.png`, and `output/eda_summary.txt`)
+    with regex-fallback-quality numbers (e.g. "115 items (48.1%) no verb
+    detected" instead of the original spaCy-based "96 items (40.2%)").
+    Caught via a routine `git status`/`git diff` check before packaging or
+    committing anything; all 7 files were restored via `git checkout --`
+    to their original, spaCy-computed committed state. The gitignored,
+    untracked `output/flaw_summary.csv` was also regenerated with the
+    regex-fallback numbers and could **not** be restored the same way (no
+    committed history exists for a gitignored file) — harmless for
+    anything already delivered (the original real production run already
+    consumed its own, correctly-spaCy-computed copy of this file months
+    ago and that output is locked in), but worth knowing: a fresh, real
+    (non-sandboxed) run of `WAPLA_EDA.ipynb`/this notebook's Deliverable-1
+    section, in an environment with spaCy installed, will naturally
+    regenerate it correctly again on its own.
+  - Also removed several other local, gitignored test-only artifacts this
+    verification pass created (`output/aig_engine.log`,
+    `output/entregavel_2_100_questoes.dryrun.csv`,
+    `output/aig_audit_trail.dryrun.jsonl`,
+    `output/_smoketest_audit_trail.jsonl`,
+    `output/07_final_position_bias_correction.png`) — none were tracked,
+    none affect any deliverable.
+  - **Net verification status**: all 92 notebook cells parse and execute
+    without error under `DRY_RUN=True`, including a real, non-trivial
+    end-to-end smoke test of the actual generator→judge→backfill loop —
+    confirmed working, not merely non-crashing. `kaggle_submission_final/`
+    was re-populated with the corrected notebook and the now-synced `.md`
+    files after this fix.

@@ -725,6 +725,27 @@ Design C soft-target approach) is this pipeline's own untested
 generalization of the paper's result, not a directly cited finding —
 must be calibrated empirically before being trusted as a solved problem.
 
+**Implementation status (2026-08-19, Design D calibrated and shipped):**
+implemented in `WAPLA_AIG_Engine.py` as "Design D" —
+`strip_countdown_markers()` mechanically strips the model's visible `<k>`
+markers post-generation (never trusts self-transcription), and
+`describe_countdown_malformation()` diagnoses (never gates on) whether the
+raw, pre-strip text actually followed the protocol. Calibrated on a paired
+30-item sample against the pre-Design-D baseline: approval rose from
+33.3% to 50.0% (+16.7 points), and the length-extreme rate fell from
+82.9% to 76.7% — the scope-caveat generalization above (one countdown
+sequence per JSON field, five fields per call) does work, partially. But
+the mechanism is **not reliable**: 77.3% of attempts contained at least
+one malformed marker sequence (empty-marker tails, incorrect/incomplete
+sequences, stray text after `<0>`) — the small/guardrail-hardened-model
+caveat above turned out to apply more broadly than just o4-mini/
+gpt-4o-mini-class models. The full 239-item production run confirms the
+same direction at scale (length-extreme rate 73.2%, vs. 82.9%
+pre-Design-D). Full methodology, the refuted Design C predecessor, and
+the ~40% combinatorial-floor analysis separating "unavoidable noise" from
+"correctable bias" are in `relatorio_tecnico.tex` §"Descoberta
+Metodológica Central" and `CONTEXT.md` §9.1 (staged full version).
+
 ---
 
 ## Amendment Log
@@ -877,3 +898,16 @@ must be calibrated empirically before being trusted as a solved problem.
   this document should be read as "implemented" merely because it has an
   amendment-log entry — that would repeat exactly the mistake R32 warns
   against.
+- v0.13 (2026-08-19, R45 implementation-status follow-up, fulfilling the
+  v0.10 commitment): Design D (countdown-marker exact length control) was
+  implemented and calibrated the same day as this entry — see the inline
+  implementation-status note now added to R45 above. Real but partial
+  effect (33.3%→50.0% approval on a paired 30-item calibration, 77.3%
+  marker-malformation rate; confirmed at full 239-item scale). This
+  corrects the v0.12 net-effect summary immediately above, which omitted
+  R45 from its "confirmed genuinely implemented" list — R45 belongs there
+  alongside R9, R12/R13, R21–R23, R25–R26, R38, and R42, not in the
+  unimplemented/deferred list. `spec.md`'s matching v0.8 entry (which
+  logged R45 with only "partial, non-conclusive results" per `CONTEXT.md`
+  §8) is superseded by this fuller account; see `spec.md`'s own v0.9 entry
+  for the corresponding correction there.
