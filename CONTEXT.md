@@ -61,7 +61,7 @@ bias, IRT psychometrics, engineering rigor).
 | # | Deliverable | Status | Artifact |
 |---|---|---|---|
 | 1 | Reproducible EDA notebook diagnosing the 239 rejected items | ✅ Complete | [`WAPLA_EDA.ipynb`](WAPLA_EDA.ipynb) |
-| 2 | 100 generated/repaired questions (competition CSV schema) | ✅ Complete — 100/100 approved, real (non-dry-run) run | [`output/entregavel_2_100_questoes_design_d_full.csv`](output/entregavel_2_100_questoes_design_d_full.csv) |
+| 2 | 100 generated/repaired questions (competition CSV schema) | ✅ Complete — 100/100 approved, real (non-dry-run) run | [`output/entregavel_2_100_questoes_qwen_validated.csv`](output/entregavel_2_100_questoes_qwen_validated.csv) |
 | 3 | Technical report | ✅ Complete | [`relatorio/relatorio_tecnico.tex`](relatorio/relatorio_tecnico.tex) |
 
 **Evaluation phases/criteria** (as operationalized by this project's own
@@ -420,10 +420,13 @@ accepted:
 - Two swappable model slots: `--generator-model` (default
   `gpt-4o-mini`) and `--judge-model` (default
   `claude-3-5-haiku-20241022`), enforced cross-provider by R26. The
-  models actually used for the real (non-dry-run) run are
-  `groq/openai/gpt-oss-20b` (generator) and `groq/qwen/qwen3.6-27b`
-  (judge) — see `relatorio_tecnico.tex` §"Escolha de Modelos" for the
-  full justification. External validation worth noting here: Korthals,
+  models actually used for the real (non-dry-run) run that produced the
+  graded 100-item deliverable are `phi-4` (generator) and `gpt-oss-20b`
+  (judge), both served locally via `vllm_local` on `cluster-node7`
+  (cluster Apuana, CIn-UFPE) — not the Groq-hosted pairing originally
+  planned, which was never actually run against real APIs (see
+  `relatorio_tecnico.tex` §"Uso de IA Generativa" for the full
+  three-stage model history). External validation worth noting here: Korthals,
   Akrong, Geller, Rosenbusch, Grasman & Visser (*Mach. Learn. Knowl.
   Extr.* 2026, 8(3):74, "Towards Reliable LLM Grading Through
   Self-Consistency and Selective Human Review" — the SURE method)
