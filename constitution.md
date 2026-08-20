@@ -948,3 +948,28 @@ Metodológica Central" and `CONTEXT.md` §9.1 (staged full version).
   work itself (unlike R45's v0.13 entry) — flagged here per R31/R32
   rather than corrected silently, matching this document's own standard
   for a wrong or stale claim.
+- v0.15 (2026-08-20, R21 status correction — this time an over-claim,
+  not an under-claim): the v0.12 net-effect summary, and its two
+  restatements in v0.13 and v0.14 above, all list R21 alongside R23 in
+  the "confirmed genuinely implemented" bucket. That is wrong for R21
+  specifically, and has been wrong since v0.12 was first written — it
+  contradicts this project's own, consistently-disclosed Deviation 2
+  (`relatorio_tecnico.tex` §"Desvios Documentados", present in every
+  version of that section throughout the project's history): the
+  pipeline's default mode uses a single-shuffle blind-solve, not R21's
+  own stated minimum bar of "bidirectional swap-and-average," and does
+  not reach the MCQ-specific ≥10-reordering majority vote the rule also
+  recommends. The `--rigorous-position-check` flag implements the full
+  10-reordering mode but has never been used in any real production run.
+  R21 is therefore **Parcial**, not implemented — it belongs with R10 in
+  the half-implemented category, not alongside R9/R12–R13/R23/R25–R26/
+  R38/R42/R45. R23 is unaffected by this correction: unlike R21's
+  numeric floor, R23's bar ("no judgment from a single, uncorrected
+  judge call") is met by the single-shuffle mode itself, which is a
+  genuine — if weaker-than-recommended — decorrelation step. Found
+  during the same external cross-consistency audit as v0.14, this time
+  by comparing the report's own explicit disclosure against this
+  document's summary claim rather than by finding new evidence — the
+  discrepancy was already latent in v0.12 and simply never caught until
+  now. Per R31/R32, logged as a correcting entry rather than a silent
+  edit to v0.12–v0.14's text above.
