@@ -629,6 +629,417 @@ causal attribution clean.
 
 ---
 
+## 9. Detailed Methodology for Notebook Update (Staged, Not Yet Applied)
+
+**Purpose:** `relatorio_tecnico.tex` was cut aggressively on 2026-08-20 to
+fit the SBC page limit (single-column template, not two-column as
+originally assumed — see Amendment Log v1.3). The full, uncut narrative
+detail below is staged here for a **future** Kaggle notebook restructuring
+pass (rule-by-rule explanations, new visualizations, fuller narrative
+arc) — explicitly **not** attempted tonight; tonight's deadline is the
+report only. Content below is verbatim or near-verbatim from the
+pre-cut report sections, kept in Portuguese to be directly reusable.
+
+### 9.1 Design C→D Narrative (full, pre-cut version)
+
+> O acoplamento posição-conteúdo não foi o único achado arquitetural
+> deste projeto -- apenas o primeiro. Um segundo ciclo completo de
+> diagnóstico, correção e teste segue a mesma lógica científica: hipótese,
+> teste, refutação quando aplicável, causa-raiz, nova hipótese
+> fundamentada em literatura, novo teste, confirmação parcial com
+> explicação de mecanismo.
+>
+> **Hipótese 1 (R42) -- ordem dos campos do schema.** Tam et al. (2024,
+> "Let Me Speak Freely?") mostram que forçar um modelo a comprometer-se
+> com uma resposta antes de sua justificativa causa colapso de acurácia
+> específico por tarefa (86,51%→23,44% no GSM8K), e confirmam que a causa
+> é estrutural -- a ordem literal dos campos no schema JSON -- não um
+> artefato de parsing. Uma auditoria de código encontrou exatamente essa
+> inversão em WAPLA_AIG_Engine.py: o schema GeneratedItem declarava
+> correct_option antes de generator_notes, e JudgeVerdict declarava
+> blind_solve_shuffled_label antes de blind_solve_reasoning e verdict
+> antes de reasons -- o oposto exato do que R42 exige, nos dois schemas,
+> nas duas direções. A correção reordenou os campos e, criticamente, os
+> prompts de sistema do gerador e do juiz (que ainda listavam a ordem
+> antiga na instrução "responda com exatamente estes campos" -- a parte
+> que de fato governa a ordem de geração sob decodificação em modo JSON
+> simples, já que R44/decodificação restrita por schema não está em
+> vigor).
+>
+> **Teste 1 (Design C) -- refutado.** A hipótese natural seguinte foi que
+> um alvo numérico de comprimento, calculado por item e injetado no
+> prompt (substituindo a instrução abstrata de "±20% da média"),
+> reduziria a taxa de rejeição por viés de verbosidade. Testado em
+> calibração pareada sobre os 30 itens de maior contagem de falhas
+> estruturais: a taxa de aprovação permaneceu idêntica (33,3%→33,3%), e a
+> taxa de opção correta como extremo de comprimento não melhorou
+> (82,9%→85,9%, se algo, piorou ligeiramente). Inspeção direta dos
+> comprimentos gerados revelou a causa-raiz: o item 63 (aprovado) ficou
+> 8-12 palavras abaixo do alvo em todas as cinco opções, e ainda assim
+> passou, por sorte na dispersão relativa entre as cinco; o item 98
+> (rejeitado) chegou perto do alvo em 4 das 5 opções e mesmo assim
+> falhou. A verificação mecânica (check_verbosity()) não depende de
+> nenhum valor absoluto -- ela testa apenas se a opção correta é o
+> extremo estrito (máximo ou mínimo) entre cinco valores. Um alvo
+> absoluto, por mais preciso que seja, não altera essa variável de
+> decisão baseada em ranking.
+>
+> **Nova hipótese (R45), fundamentada em literatura nova.** Xie & Lee
+> (2508.13805, "Prompt-Based One-Shot Exact Length-Controlled Generation")
+> demonstram que modelos de linguagem não conseguem manter um contador
+> interno de tokens de forma confiável (a autoatenção não possui um
+> acumulador explícito), de modo que qualquer alvo absoluto de
+> comprimento -- por mais preciso que seja -- está sujeito à mesma
+> limitação. Sua técnica, CAPEL (Countdown-Aided Prompting for Exact
+> Length), externaliza a contagem por meio de marcadores visíveis e
+> decrescentes intercalados com as palavras geradas (ex.:
+> `<5>Olá,<4>mundo!<3>Como<2>vai<1>você?<0>`), elevando o cumprimento
+> estrito de comprimento no MT-Bench-LI de menos de 30% para mais de 95%
+> com gpt-4.1. Este projeto adotou o mecanismo (Design D), generalizando-o
+> -- de forma reconhecidamente não testada pelos autores originais --
+> para forçar paridade exata entre cinco campos JSON paralelos numa única
+> chamada, em vez de um único texto contínuo.
+>
+> **Teste 2 (Design D) -- confirmação parcial, com mecanismo explicado.**
+> Na mesma calibração pareada de 30 itens: a taxa de aprovação subiu de
+> 33,3% para 50,0% (+16,7 pontos percentuais), e a taxa de extremo de
+> comprimento caiu de 82,9% para 76,7% -- a primeira melhoria real
+> observada nas duas tentativas. Mas o mecanismo não funciona de forma
+> confiável: 77,3% dos attempts continham ao menos uma opção com
+> sequência de marcadores malformada (cauda de marcadores vazios sem
+> palavra entre eles: 105 ocorrências; sequência incorreta/incompleta:
+> 97; texto residual após `<0>`: 35) -- nenhum caso de a instrução ser
+> simplesmente ignorada. phi-4 tenta executar o protocolo de contagem
+> regressiva quase sempre, mas frequentemente o executa mal -- exatamente
+> a ressalva que Xie & Lee documentam para modelos menores ou mais
+> protegidos por guardrails (o4-mini, gpt-4o-mini no estudo original). A
+> melhoria observada, portanto, não vem de o mecanismo funcionar de forma
+> confiável, mas de uma minoria de execuções corretas ser suficiente para
+> deslocar o resultado agregado -- uma intervenção imperfeita ainda tendo
+> valor esperado positivo.
+>
+> **Confirmação em escala.** A execução completa dos 239 itens confirma a
+> direção do Teste 2: taxa de extremo de comprimento de 73,2% --
+> consistente com (na verdade, ligeiramente melhor que) o resultado da
+> amostra de 30 itens, e mensuravelmente abaixo da linha de base
+> pré-Design-D (82,9%).
+>
+> **O achado mais defensável: o piso estrutural de ~40%.** Para cinco
+> valores de comprimento gerados de forma independente e sem qualquer
+> correlação entre comprimento e correção, o puro acaso já torna a opção
+> correta o extremo estrito (máximo ou mínimo) em ~40% dos casos -- por
+> simetria, P(é o máximo) + P(é o mínimo) = 1/5 + 1/5 = 2/5, para cinco
+> valores distintos. Nenhuma correção do lado da geração pode levar a taxa
+> de rejeição por extremo de comprimento a zero: esse é um piso
+> combinatório, não um sintoma de viés. A taxa observada nas execuções
+> deste projeto -- 82,9% antes do Design D, 73,2% depois, em escala
+> completa -- fica bem acima desse piso em ambos os casos, o que é a
+> evidência quantitativa de que existe, sim, um viés de verbosidade real
+> e mensurável além do ruído combinatório inevitável -- e que o Design D
+> fechou uma fração real, mas parcial, desse excesso (de ~43 pontos
+> percentuais acima do piso para ~33). Separar "piso estatístico
+> inevitável" de "viés corrigível" é, em si, uma contribuição
+> metodológica, não apenas uma nota de rodapé sobre os números.
+
+### 9.2 Energy Measurement Methodology (full, pre-cut version)
+
+> Seguindo o objetivo de medição de Chung et al. (2026, "Where Do the
+> Joules Go?") e de Wang et al. (2026), que instrumentam energia de
+> inferência diretamente no hardware em vez de estimá-la apenas a partir
+> de contagens de token, este projeto amostrou `nvidia-smi
+> --query-gpu=power.draw,utilization.gpu,memory.used` a cada 2 segundos
+> durante toda a duração da execução completa do pool de 239 itens
+> (Design D, R45), do início do processo até a escrita do CSV/JSONL
+> finais. A energia total foi calculada integrando a potência instantânea
+> (W) ao longo do tempo pela regra do trapézio, convertendo
+> Watt-segundos em Watt-horas (dividido por 3600) e depois em
+> quilowatt-horas. Diferente de Chung et al., que usa a ferramenta Zeus
+> (You, Chung & Chowdhury, 2023) para leitura direta de contadores de
+> energia da GPU, esta medição usa amostragem periódica de potência
+> instantânea como aproximação mais leve do mesmo objetivo -- não uma
+> reprodução da instrumentação exata deles. Vartziotis et al. (2026)
+> mostram que estimar energia a partir de contagem de tokens exige
+> constantes de calibração específicas por arquitetura de GPU (H100 vs.
+> A100 já diferem em ~30-35%); a medição direta de potência aqui descrita
+> contorna completamente esse problema de calibração, pois mede a
+> potência real no hardware efetivamente usado, não uma estimativa
+> derivada de tokens.
+>
+> Resultados completos: duração total 5h08min (308,3 min;
+> 15:00:21-20:08:30); potência média 291,5 W; potência de pico 408,8 W;
+> energia total 1,498 kWh (1.497,85 Wh); 93/239 itens aprovados (38,9%);
+> 0,0161 kWh/item (16,1 Wh/item) aprovado. Escopo: mede apenas consumo de
+> GPU via nvidia-smi, não inclui overhead de CPU/memória do host, energia
+> de rede, nem infraestrutura compartilhada do cluster; não é comparável
+> às execuções via Groq, cuja energia permanece inteiramente
+> não-mensurável a partir deste projeto.
+
+### 9.3 Judge Cross-Validation Audit — Full Findings (pre-cut version)
+
+> Após a entrega do lote de 100 itens (phi-4 gerador, gpt-oss-20b juiz),
+> este projeto conduziu uma auditoria adicional: reexecutar o mesmo
+> protocolo de blind-solve e verificação de qualidade usando um segundo
+> modelo-juiz independente, qwen3.6-27b, sobre o texto já entregue, sem
+> regenerar nenhum item.
+>
+> **Achado.** 27% dos 100 itens (27/100) foram sinalizados por
+> qwen3.6-27b com bloom_alignment_ok=False, e até 50% falharam ao menos
+> um dos quatro critérios de qualidade sob a reauditoria mais rigorosa. A
+> causa recorrente: itens cujo stem usa o verbo do nível declarado
+> ("Analisar") apenas retoricamente (ex.: "Ao analisar a Semântica,
+> pode-se afirmar que ela é o ramo da linguística que..."), sem exigir de
+> fato decomposição, comparação ou inferência -- efetivamente itens de
+> recuperação de definição (nível Lembrar/Compreender) travestidos de
+> análise.
+>
+> Comparando com o histórico de julgamento do juiz original sobre os
+> mesmos itens: gpt-oss-20b havia aprovado 7 dos 8 casos inspecionados
+> manualmente com justificativas quase idênticas e genéricas -- **both
+> verbatim quotes, for the notebook's rule-by-rule appendix:**
+> - *"The task requires analysis, matching Bloom level."* (qid 106)
+> - *"Bloom level 'Analisar' matches the analytical nature of the
+>   question."* (qid 779)
+> - (additional near-identical boilerplate seen across qids 26, 457, 528:
+>   "The cognitive demand of selecting the correct statement aligns with
+>   the 'Analyze' Bloom level" / "matching the declared Bloom level" —
+>   full set of 5 verbatim quotes recorded in this conversation's turn
+>   analyzing "Part 2: Same items, historical Phi-4/gpt-oss-20b pairing")
+>
+> Sem nunca engajar com a demanda cognitiva real do item: evidência
+> direta, não apenas estatística agregada, de um juiz insensível a esta
+> dimensão específica de qualidade.
+>
+> **Correção.** `determine_target_level()` foi estendida com uma tabela
+> de correção pontual (`QWEN_BLOOM_DEMOTION_OVERRIDES`), informada pelo
+> próprio raciocínio já registrado do juiz qwen3.6-27b: 23 question_ids
+> cujo texto de rejeição citava explicitamente recuperação/reconhecimento
+> de definição foram rebaixados de "Analisar" para "Compreender" antes da
+> regeneração. Os itens afetados (43 no total, incluindo 20 com outros
+> defeitos não relacionados a Bloom) foram regenerados a partir da linha
+> original do dataset -- nunca a partir do texto já reescrito -- com
+> gpt-oss-20b como gerador (Design D intacto) e qwen3.6-27b como juiz; 7
+> itens com defeito de contexto incompleto na fonte foram encaminhados
+> diretamente ao pool de reserva, sem tentativa de regeneração. A
+> composição final de nível de Bloom mudou de 100 "Analisar" para 70
+> Analisar / 22 Compreender / 8 Aplicar.
+>
+> **Remediation run stats** (for notebook narrative): 2h55min runtime
+> (18:28:29-21:23:39 UTC), 156 total generation attempts, 50/50 slots
+> resolved (100% fill rate), 3 free-reserve items tried first (all
+> failed their own judge-only re-check), 1 backfill slot needed 2 hops
+> before landing (qid 364→176 failed→440 succeeded).
+>
+> **Stem-genericity follow-up finding:** R41 re-check surfaced a
+> similarity=1.0000 pair (qid 439/510, both Múltipla Escolha Complexa) —
+> investigated and confirmed as a false positive for content duplication
+> (completely different topics), but real: gpt-oss-20b defaults to a
+> generic, reusable stem template for Asserção-Razão/Múltipla Escolha
+> Complexa formats ("Ao analisar as asserções, assinale a alternativa
+> correta.") where phi-4 always wove in the specific topic. A targeted
+> fix (explicit topic-specificity instruction injected into generator
+> feedback) resolved 2/4 identified cases (qid 73, 582); the remaining 2
+> (439/510) stayed generic because their regeneration attempts failed for
+> an unrelated reason — Complex-MC's short combinatorial option phrases
+> tripping the length-bias mechanical check, not a stem-specificity issue.
+
+### 9.4 Full `tab:cobertura` (28 rows, pre-consolidation)
+
+The report's coverage table originally had one row per rule/rule-range
+before the 2026-08-20 consolidation (12 "Fora de escopo" rows → 1). Full
+git history of the pre-consolidation table is in commit `2af972f` and
+earlier — `git show 2af972f:relatorio/relatorio_tecnico.tex` (before the
+2026-08-20 cutting commits) has the complete 28-row version with
+individual notes for R1–R5, R11, R14–R16, R17–R19, R27–R30, R35–R36,
+R39, R40, R43–R44, §5, §6, §2.7–2.9 each as their own row. Reuse that
+git-historical version directly for the notebook's rule-by-rule appendix
+rather than retyping — it is the authoritative, already-verified source.
+
+### 9.5 Deferred: Notebook Restructuring (rule-by-rule, new viz, narrative arc)
+
+**Explicitly logged as a scoped NEXT task, not attempted tonight
+(2026-08-20 deadline is the report only):**
+- Rewrite the Kaggle notebook's markdown narration to walk rule-by-rule
+  (R1 through R45) rather than the current denser prose, using §9.1–9.4
+  above as source material.
+- Add new visualizations beyond the 7 EDA figures already produced (3
+  currently active in the report, 4 commented out for space — see
+  `relatorio_tecnico.tex` §Evidências) — candidates: a Bloom-level
+  composition before/after chart (100 Analisar → 70/22/8), a
+  per-attempt approval-rate timeline for the remediation run, a
+  judge-agreement heatmap (gpt-oss-20b vs. qwen3.6-27b per check).
+- Restore the 4 commented-out figures (fig:verbosidade-tipo, fig:r9,
+  fig:composto, fig:overview) into the notebook narrative even though
+  they were cut from the report for page-length reasons.
+- Build a fuller narrative arc connecting: original submission →
+  Phi-4/gpt-oss-20b calibration (Design C→D) → post-submission
+  cross-judge audit (qwen3.6-27b) → remediation → final deliverable —
+  the report compresses this to headline findings; the notebook has
+  room for the full arc.
+
+### 9.6 Rule-by-Rule (R1–R45) Plain-Language Reference
+
+Written for the notebook's future rule-by-rule walkthrough section. Each
+entry: plain-language gist + this project's actual implementation status
+(source: `tab:cobertura` in `relatorio_tecnico.tex` / this session's
+module-by-module audits — not aspirational, verified by tracing code).
+
+**§I PBL (R1–R5) — Fora de escopo, all five.** This entry reuses
+already-existing items, not scenarios generated from scratch, so this
+whole group doesn't apply to the actual task.
+- R1: every item must come from a messy, real-life problem, never a bare
+  recall fact.
+- R2: distinguish Problem-Based (apply knowledge) vs. Project-Based
+  (construct knowledge) items.
+- R3: any AI role in a PBL artifact must be disclosed via an explicit
+  integration model.
+- R4: where AI use is uneven across students, the rubric must score
+  "use of AI" as its own criterion.
+- R5: scenario text must never leak the answer into the problem
+  statement itself.
+
+**§II Bloom's Taxonomy (R6–R11).**
+- R6 (Parcial): Bloom is the mandatory cognitive-level scheme, with its
+  known validity limits acknowledged. `check_bloom_verb()` implements
+  the verb-gate half; no independent classifier.
+- R7 (Fora de escopo): cognitive level should use the dual-dimension
+  model (process × knowledge type); not modeled here.
+- R8 (Parcial, folded into R6 row): no self-reported cognitive level
+  without independent re-classification. `check_bloom_verb()` is
+  mechanical but not a trained independent classifier as R8 demands.
+- R9 (Implementado): MCQ is illegal for Avaliar/Criar.
+  `determine_target_level()` demotes those to Analisar before
+  generation — confirmed zero Avaliar/Criar items delivered in MCQ.
+- R10 (Parcial): each Bloom level needs a fixed, level-specific
+  template. Verb-bank half has code; the "structural template" half
+  (causa/efeito for Analisar, prós/contras for Avaliar, etc.) has none
+  — every level gets the same option-structure instructions.
+- R11 (Fora de escopo): Bloom-difficulty is a hypothesis to test
+  empirically per domain, not assumed. No discrimination statistics
+  computed anywhere in this pipeline.
+
+**§III Rubrics (R12–R16) — mostly Fora de escopo** (this competition's
+schema is MCQ-only, no rubric generation), except:
+- R12–R13 (Implementado): rubric/option criteria must be mutually
+  exclusive, mechanically verified, not LLM-self-enforced.
+  `check_mutual_exclusivity()` (Jaccard) does this for free-text
+  options; templated formats get exclusivity by construction.
+- R14 (Fora de escopo): every rubric must declare its type before
+  generation.
+- R15 (Fora de escopo): rubric criteria limited to 3–6, no vague terms
+  ("adequate," "clear").
+- R16 (Implementado, folded into R22 row): items with >1 detected flaw
+  must be rejected, not silently warned. The mechanical pre-filter does
+  exactly this.
+
+**§IV Synthetic Data / Privacy (R17–R20).**
+- R17–R19 (Fora de escopo): no real student data may ever train/condition
+  any model; validate synthetic data jointly on fidelity+privacy; prefer
+  frozen in-context generation over fine-tuning. None of this applies —
+  this pipeline rewrites existing items, never generates student-response
+  data from scratch.
+- R20 (Implementado): bias introduced by a generator LLM must be
+  actively audited/curated out. The mechanical pre-filter substitutes
+  for the trained CLLM curator `spec.md` originally specified.
+
+**§V LLM-as-a-Judge Bias Mitigation (R21–R26).**
+- R21 (Parcial): every judge verdict needs an explicit position-bias
+  control (min. bidirectional swap-and-average, tie on inconsistency).
+  Default mode is single-shuffle blind-solve, not the 10-reordering
+  majority vote R21's floor requires (`--rigorous-position-check`
+  exists but was never used in a real run).
+- R22 (Implementado): judge rubrics must mechanically neutralize
+  verbosity, verified per judge model via a length-confound probe.
+  `check_verbosity()` (CV=0.35) + the one-time confound audit do this.
+- R23 (Parcial, same gap as R21): no judgment accepted from a single
+  uncorrected judge call — single-shuffle mode doesn't fully satisfy
+  this either.
+- R24 (Desviado): judges must never be trusted for leniency calibration
+  without a human-expert control group. No human reviewer exists in
+  this automated script — disclosed, not silently skipped.
+- R25 (Implementado): bias-mitigation config is tied to a specific judge
+  model version, re-audited on every upgrade. The verbosity-confound
+  audit is re-run at the start of every session against the actual
+  judge model in use.
+- R26 (Implementado): judge must never be the same model/checkpoint/
+  close-family variant as the generator. Enforced by a hard assertion
+  in code (`_model_family` check, raises if violated).
+
+**§VI IRT Calibration (R27–R30) — Fora de escopo, all four.** No
+respondent pool (human or LLM) exists to calibrate against; classical
+reliability metrics alone aren't accepted as validation, IRT parameters
+aren't computed, discrimination-based exclusion isn't implemented, AI
+items aren't compared against a human-authored discrimination bar.
+
+**§VII Engineering & Reporting Rigor (R31–R34) — Implemented, with a
+caveat.**
+- R31: spec-anchored artifact maintenance — divergences registered
+  explicitly (this whole document, `spec.md`, `plan.md` amendment logs).
+- R32: a passing spec check is evidence of matching, not of the spec
+  being correct — motivated re-checking Bloom-difficulty and R9's MCQ
+  boundary assumptions this session.
+- R33: human-vs-AI comparisons need per-domain inter-rater agreement,
+  not pooled figures. N/A (no human grading comparison exists).
+- R34: statistical comparisons need variance decomposition/resampling,
+  not point estimates. The EDA's own bootstrap CIs satisfy this; the
+  same-day Design C/D calibration comparisons (n=30, no bootstrap) do
+  **not** satisfy R34 on their own — flagged explicitly, not silently
+  passed off as rigorous.
+
+**§VIII IRT/LLM-Respondent Difficulty (R35–R36) — Fora de escopo, both.**
+R35: never use direct LLM difficulty judgment; must simulate-then-fit
+IRT instead. R36: respondent-model selection must not default to the
+strongest solver, and must report validated domains. Neither implemented
+— gated on the same missing respondent pool as R27–R30.
+
+**§IX Energy Reporting (R37) — Implemented.** Where hardware
+instrumentation is unavailable, log energy-proxy signals at minimum.
+Exceeded via real `nvidia-smi` power sampling (not just a proxy) for the
+local vLLM runs: 1.498 kWh / 239 items, 16.1 Wh/item approved.
+
+**§X Multi-Constraint Position Bias (R38) — Implemented.** No stacked
+constraint may be assumed satisfied by prompt order alone. The
+mechanical pre-filter verifies every constraint independently and
+post-generation — this rule is itself the generalization of the
+position-content-coupling finding (§Descoberta Metodológica Central).
+
+**§XI Synthetic/LLM Data Auditing (R39–R41).**
+- R39 (Fora de escopo): passing the mechanical filter + judge is never
+  a complete audit. N/A — no synthetic student-data corpus exists here.
+- R40 (Fora de escopo): answer keys need independent resampled
+  self-consistency verification, not a single generator/judge assertion.
+  Default mode (`n_reorderings=1`) never resamples for this; the
+  10-reordering flag could serve double duty but was never invoked in a
+  real run.
+- R41 (Auditoria independente pós-hoc): batches need a cross-item
+  diversity check before delivery. `tools/diversity_check_r41.py`
+  implements this as a standalone post-hoc script, not integrated into
+  the selection pipeline — found and helped resolve one genuine
+  near-duplicate pair (528/26).
+
+**§XII Second Literature Wave (R42–R44).**
+- R42 (Implementado, v0.9-corrected): schema field ordering must put
+  justification before verdict. Both Pydantic schemas AND both system
+  prompts needed fixing (schema-only was insufficient under JSON-mode
+  generation).
+- R43 (Fora de escopo): no judge verdict trusted from a single pass
+  without a resampled consistency-check mode using non-zero
+  temperature. Not implemented — and this project's own post-submission
+  cross-judge audit (§9.3 above) is now direct empirical evidence of
+  exactly the risk R43 exists to catch.
+- R44 (Fora de escopo): grammar-constrained decoding must be used
+  wherever the local backend supports it, not prompting-only JSON. Not
+  implemented in this pipeline.
+
+**§XIII Exact Length Control (R45) — Implemented.** Exact (not
+approximate) output length requires visible countdown markers, never an
+implicit length instruction. Design D: `strip_countdown_markers()` +
+`describe_countdown_malformation()`. Real but partial improvement
+(33.3%→50.0% approval in isolated calibration), with a 77.3%
+marker-malformation rate — the mechanism works often enough to move the
+aggregate, not reliably per-attempt.
+
+---
+
 ## Amendment Log (for this file)
 
 - v1.0 (2026-07-17): Initial creation. Reflects repository state after
@@ -654,3 +1065,16 @@ causal attribution clean.
   is unaffected by anything in §8, per the user's explicit instruction
   that this line of experiments is post-submission exploratory work, not
   a revision of the submitted report.
+- v1.3 (2026-08-20): Adds §9 "Detailed Methodology for Notebook Update
+  (Staged, Not Yet Applied)". `relatorio_tecnico.tex` was cut from
+  ~9,300 to ~3,500 main-text words to fit the SBC page limit once it
+  became clear the template is single-column, not two-column as
+  originally assumed (a page-density miscalculation, not new content
+  duplication — confirmed no duplicated sections/paragraphs during
+  diagnosis). Full pre-cut narrative (Design C→D arc, energy-measurement
+  methodology, the qwen3.6-27b cross-judge audit with verbatim
+  boilerplate quotes, the pre-consolidation 28-row coverage table) is
+  staged in §9 for a future Kaggle notebook restructuring pass — not
+  attempted tonight; tonight's deadline was the report only. §9.5 scopes
+  that future notebook work explicitly so it isn't attempted piecemeal
+  or forgotten.
