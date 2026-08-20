@@ -335,13 +335,37 @@ def describe_countdown_malformation(raw_text: str, target: int) -> Optional[str]
     return None
 
 
-def determine_target_level(original_level: str) -> tuple[str, bool]:
+# One-off remediation override, 2026-08-19: qid -> corrected level, for items
+# from entregavel_2_100_questoes_design_d_full.csv that qwen3.6-27b's
+# re-audit (tools/reaudit_bloom_qwen.py, output/reaudit_bloom_qwen_pool100.jsonl)
+# flagged bloom_alignment_ok=False with reasoning identifying the item as
+# genuine recall/recognition content ("Lembrar"/"Compreender"), not real
+# Analisar-level demand. Declared "Analisar" was the ORIGINAL dataset's
+# label, carried through unchanged by determine_target_level() before this
+# override existed -- this is not a generalizable content classifier, it is
+# a lookup keyed to already-computed judge evidence for these 50 specific
+# question_ids. Does not apply to any question_id outside this dict.
+QWEN_BLOOM_DEMOTION_OVERRIDES: dict[int, str] = {
+    qid: "Compreender" for qid in [
+        26, 29, 106, 132, 138, 246, 364, 374, 392, 457, 483, 489, 516, 519,
+        528, 559, 623, 745, 779, 794, 808, 830, 840,
+    ]
+}
+
+
+def determine_target_level(original_level: str,
+                            question_id: Optional[int] = None) -> tuple[str, bool]:
     """Constitution R9: MCQ format is illegal for Evaluate/Create-level
     content. Since the competition deliverable's schema mandates a
     single-best-answer MCQ output for every item, an item declared
     Avaliar/Criar is demoted to Analisar (the nearest legal MCQ ceiling)
     rather than shipped as a self-contradictory R9 violation. Returns
-    (target_level, was_demoted)."""
+    (target_level, was_demoted).
+
+    question_id, if given, is checked against QWEN_BLOOM_DEMOTION_OVERRIDES
+    first -- the one-off remediation lookup above -- before the R9 check."""
+    if question_id is not None and question_id in QWEN_BLOOM_DEMOTION_OVERRIDES:
+        return QWEN_BLOOM_DEMOTION_OVERRIDES[question_id], True
     if original_level in R9_MCQ_ILLEGAL_LEVELS:
         return "Analisar", True
     if original_level not in LEVEL_ORDER:
@@ -1264,15 +1288,14 @@ def extract_json(text: str) -> dict:
 # 9. Prompt builders
 # --------------------------------------------------------------------------
 GENERATOR_SYSTEM_PROMPT = """Você é o Generator Agent de um pipeline de \
-Automated Item Generation (AIG), operando sob as regras imutáveis do \
-constitution.md deste projeto. Sua tarefa é REESCREVER uma questão de \
+Automated Item Generation (AIG). Sua tarefa é REESCREVER uma questão de \
 múltipla escolha que foi REJEITADA por falhas estruturais, produzindo uma \
 versão corrigida.
 
 REGRAS OBRIGATÓRIAS (não negociáveis):
-1. CONTROLE DE COMPRIMENTO POR CONTAGEM REGRESSIVA VISÍVEL (Design D, \
-constitution R45 -- substitui a normalização por faixa aproximada; \
-corrige Verbosity Bias, R16/R22): as cinco opções (A-E) devem ter \
+1. CONTROLE DE COMPRIMENTO POR CONTAGEM REGRESSIVA VISÍVEL (Design D -- \
+substitui a normalização por faixa aproximada; evita viés de \
+comprimento): as cinco opções (A-E) devem ter \
 EXATAMENTE o mesmo número de palavras, informado abaixo como ALVO DE \
 CONTAGEM REGRESSIVA -- não uma faixa aproximada. Para CADA uma das cinco \
 opções, gere o texto intercalando marcadores de contagem regressiva \
@@ -1303,8 +1326,8 @@ palavras por opção, para as cinco opções (A-E). Se nenhum ALVO DE \
 CONTAGEM REGRESSIVA for informado abaixo (formato sem opções de texto \
 livre), esta regra não se aplica.
 2. CORREÇÃO COMO PRIORIDADE MÁXIMA (substitui a exigência de posição fixa \
--- o reposicionamento para R21 é feito mecanicamente por outro componente \
-do sistema, depois da geração, então você NÃO precisa e NÃO deve se \
+-- o reposicionamento da resposta correta é feito mecanicamente por outro \
+componente do sistema, depois da geração, então você NÃO precisa e NÃO deve se \
 preocupar com em qual letra a resposta correta vai terminar): avalie cada \
 alternativa com rigor factual e lógico antes de decidir qual é a \
 genuinamente mais correta e melhor sustentada pelo cenário/definição \
@@ -1313,7 +1336,7 @@ superficialmente. ESCREVA SEMPRE a resposta correta como option_a, e as \
 quatro alternativas claramente incorretas, parciais ou fora de contexto \
 como option_b, option_c, option_d, option_e. O campo correct_option deve \
 ser sempre "A".
-3. VERBO DE BLOOM OBRIGATÓRIO (corrige R9/R10): o texto cognitivo do item \
+3. VERBO DE BLOOM OBRIGATÓRIO: o texto cognitivo do item \
 (stem, e quando aplicável, assertion_i/ii ou statement_i-iv) DEVE conter \
 pelo menos um verbo do banco de verbos do nível TARGET_LEVEL fornecido \
 abaixo -- não use verbos de outro nível taxonômico. EXEMPLO CONCRETO: se \
@@ -1324,7 +1347,7 @@ apenas de forma implícita. AUTOVERIFICAÇÃO OBRIGATÓRIA: antes de \
 finalizar, releia o stem e confirme que ele contém literalmente uma das \
 palavras do TARGET_LEVEL_VERB_BANK -- se não contiver, reescreva o stem \
 antes de responder.
-4. EXCLUSIVIDADE MÚTUA (R12/R13): as cinco opções devem ser mutuamente \
+4. EXCLUSIVIDADE MÚTUA: as cinco opções devem ser mutuamente \
 exclusivas -- nenhuma pode ser uma paráfrase de outra nem sobrepor-se em \
 significado. REGRA VERIFICÁVEL: evite repetir as mesmas palavras de \
 conteúdo (substantivos, verbos e adjetivos específicos do tema) em mais \
@@ -1335,7 +1358,7 @@ palavras-chave NÃO satisfaz esta regra.
 possível; o objetivo é CORRIGIR falhas estruturais, não trocar de assunto.
 
 Responda SOMENTE com um objeto JSON válido, sem markdown, com exatamente \
-estes campos, NESTA ORDEM (constitution R42 -- justifique antes de \
+estes campos, NESTA ORDEM (justifique antes de \
 declarar a resposta): base_text, stem, statement_i, statement_ii, \
 statement_iii, statement_iv, assertion_i, assertion_ii, option_a, \
 option_b, option_c, option_d, option_e, generator_notes, correct_option. \
@@ -1432,12 +1455,12 @@ def build_generator_messages(row: pd.Series, target_letter: str, target_level: s
 
 
 JUDGE_SYSTEM_PROMPT = """Você é o Synthetic Judge Agent de um pipeline de \
-AIG, arquiteturalmente independente do Generator Agent (constitution R8, \
-R13, R26 -- nunca o mesmo modelo do gerador). Sua tarefa é avaliar de forma \
+AIG, arquiteturalmente independente do Generator Agent -- nunca o mesmo \
+modelo do gerador. Sua tarefa é avaliar de forma \
 independente e cética um item candidato.
 
-PROTOCOLO OBRIGATÓRIO (spec.md Seção 4.2.1):
-1. BLIND SOLVE (R21/R23, position-bias decorrelation): as cinco opções \
+PROTOCOLO OBRIGATÓRIO:
+1. BLIND SOLVE (decorrelação de viés de posição): as cinco opções \
 abaixo estão rotuladas 'Option 1'..'Option 5' em ORDEM EMBARALHADA, não na \
 ordem A-E original. Resolva a questão você mesmo, de forma independente, \
 ANTES de considerar qualquer alegação sobre qual seria a correta. Informe \
@@ -1467,11 +1490,10 @@ você não recebe.
 Aprove (verdict='approve') SOMENTE se todas as verificações de qualidade \
 acima forem satisfatórias. Em caso de dúvida sobre qualquer critério de \
 qualidade, REJEITE -- não é sua função dar o benefício da dúvida ao \
-gerador (constitution R23: nenhum item é aceito a partir de uma única \
-chamada de julgamento sem verificação cruzada).
+gerador.
 
 Responda SOMENTE com um objeto JSON válido, sem markdown, com exatamente \
-estes campos, NESTA ORDEM (constitution R42 -- raciocine antes de \
+estes campos, NESTA ORDEM (raciocine antes de \
 declarar o veredito): blind_solve_reasoning, blind_solve_shuffled_label, \
 mutual_exclusivity_ok, length_bias_ok, bloom_alignment_ok, \
 factual_soundness_ok, reasons (lista de strings), verdict. Escreva \
@@ -1974,7 +1996,7 @@ async def process_item(row: pd.Series, target_letter: str, generator_model: str,
                         semaphore: asyncio.Semaphore,
                         pacing_seconds: Optional[float] = None) -> ProcessedResult:
     question_id = int(row["question_id"])
-    target_level, demoted = determine_target_level(row["taxonomy_level"])
+    target_level, demoted = determine_target_level(row["taxonomy_level"], question_id=question_id)
     item_rng = random.Random(f"{question_id}-{SEED}")
     n_reorderings = 10 if rigorous_position_check else 1
     fmt = QUESTION_FORMAT.get(row["question_type"], "standard")

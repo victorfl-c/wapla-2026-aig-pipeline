@@ -240,7 +240,9 @@ A limitação reportada na seção anterior -- ausência de qualquer visibilidad
 sobre a infraestrutura de inferência ao usar modelos hospedados via Groq --
 não se aplica às execuções de calibração conduzidas posteriormente com o
 gerador e o juiz servidos localmente (\texttt{vllm\_local}, servidores vLLM
-em \texttt{cluster-node7}, hardware de GPU diretamente controlado por este
+em \texttt{cluster-node7}, um nó do cluster Apuana do Centro de
+Informática da UFPE (CIn-UFPE), equipado com GPU NVIDIA A100 80GB PCIe --
+hardware de GPU diretamente controlado por este
 projeto). Isso torna possível, pela
 primeira vez neste projeto, reportar uma figura de energia real, medida
 diretamente no hardware -- não um proxy derivado de contagem de tokens
@@ -439,9 +441,13 @@ R41 (\S XI) &
   Diversidade/redundância entre itens do lote entregue &
   Auditoria independente pós-hoc &
   \texttt{tools/diversity\_check\_r41.py}, não integrado ao
-  \emph{pipeline} de seleção (\S\ref{sec:diversidade}); 1
-  quase-duplicata identificada (\texttt{question\_id} 528/26) entre
-  4.950 pares. \\
+  \emph{pipeline} de seleção (\S\ref{sec:diversidade});
+  reexecutada após a correção pós-entrega (\S\ref{sec:auditoria-qwen}) --
+  ainda pós-hoc, agora iterada 2x: par quase-duplicata original
+  (528/26) resolvido pela regeneração, 1 novo par de similaridade
+  $1{,}0000$ (439/510) identificado e explicado como artefato
+  estrutural do formato Múltipla Escolha Complexa, não duplicação de
+  conteúdo. \\
 R42 (\S XII) &
   Ordem dos campos de \emph{schema}: justificativa antes do veredito &
   Implementado (corrigido v0.9) &
@@ -699,6 +705,102 @@ calibração, acabou por fechar -- ainda que apenas parcialmente, e apenas
 para essas execuções específicas -- a lacuna de Green AI que o restante do
 relatório precisou registrar como limitação.
 
+\subsection{Auditoria de Confiabilidade do Judge e Correção Pós-Entrega}
+\label{sec:auditoria-qwen}
+
+Após a entrega do lote de 100 itens documentada na
+Seção~\ref{sec:metricas-run} (\texttt{phi-4} como gerador,
+\texttt{gpt-oss-20b} como juiz), este projeto conduziu uma auditoria
+adicional, fora do escopo da submissão original: reexecutar o mesmo
+protocolo de \emph{blind-solve} e verificação de qualidade
+(Seção~\ref{sec:metodologia}) usando um segundo modelo-juiz independente,
+\texttt{qwen3.6-27b}, sobre o texto já entregue, sem regenerar nenhum
+item. O objetivo era testar uma premissa até então não verificada: que um
+único juiz local é suficiente para as garantias de qualidade que a
+Seção~\ref{sec:metodologia} declara.
+
+\paragraph{Achado.} $27\%$ dos 100 itens ($27/100$) foram sinalizados por
+\texttt{qwen3.6-27b} com \texttt{bloom\_alignment\_ok=False}, e até
+$50\%$ falharam ao menos um dos quatro critérios de qualidade sob a
+reauditoria mais rigorosa. A causa recorrente: itens cujo \emph{stem} usa
+o verbo do nível declarado (``Analisar'') apenas retoricamente (ex.:
+``Ao analisar a Semântica, pode-se afirmar que ela é o ramo da
+linguística que...''), sem exigir de fato decomposição, comparação ou
+inferência -- efetivamente itens de \textbf{recuperação de definição}
+(nível Lembrar/Compreender) travestidos de análise. Comparando com o
+histórico de julgamento do juiz original sobre os mesmos itens:
+\texttt{gpt-oss-20b} havia aprovado 7 dos 8 casos inspecionados
+manualmente com justificativas quase idênticas e genéricas -- por
+exemplo, \emph{``The task requires analysis, matching Bloom level''} e
+\emph{``Bloom level `Analisar' matches the analytical nature of the
+  question''} -- sem nunca engajar com a demanda cognitiva real do item:
+evidência direta, não apenas estatística agregada, de um juiz insensível
+a esta dimensão específica de qualidade.
+
+\paragraph{Correção.} A função \texttt{determine\_target\_level()} foi
+estendida com uma tabela de correção pontual, informada pelo próprio
+raciocínio já registrado do juiz \texttt{qwen3.6-27b} (não um
+classificador genérico de conteúdo aplicado a itens futuros): 23
+\texttt{question\_id}s cujo texto de rejeição citava explicitamente
+recuperação/reconhecimento de definição foram rebaixados de ``Analisar''
+para ``Compreender'' antes da regeneração. Os itens afetados (43 no
+total, incluindo 20 com outros defeitos não relacionados a Bloom) foram
+regenerados a partir da linha original do \emph{dataset} -- nunca a
+partir do texto já reescrito -- com \texttt{gpt-oss-20b} como gerador
+(Design D intacto) e \texttt{qwen3.6-27b} como juiz; 7 itens com defeito
+de contexto incompleto na fonte (o \emph{stem} referencia um cenário
+nunca fornecido no \texttt{base\_text} original) foram encaminhados
+diretamente ao \emph{pool} de reserva, sem tentativa de regeneração. A
+composição final de nível de Bloom mudou de $100$ ``Analisar'' para
+$70$ Analisar / $22$ Compreender / $8$ Aplicar -- uma mudança real na
+composição do lote, não cosmética.
+
+\paragraph{Verificação de diversidade, revisitada.} A reexecução do
+\emph{check} de diversidade (R41, Seção~\ref{sec:diversidade}) sobre o
+lote corrigido mantém Self-CosSim médio estável ($0{,}0557$ vs.\
+$0{,}0607$ original) e resolve o par quase-duplicata original
+($528$/$26$) como efeito colateral da regeneração de ambos. Surge um
+novo par de similaridade $1{,}0000$ (\texttt{question\_id} $439$/$510$,
+formato Múltipla Escolha Complexa) -- investigado e confirmado como
+\textbf{falso positivo} de duplicação de conteúdo (temas totalmente
+distintos: estratégia ambiental de ONG vs.\ custo de capital
+corporativo), mas um achado real e menor sobre estilo:
+\texttt{gpt-oss-20b} tende a um \emph{stem} genérico e reutilizável para
+os formatos Asserção-Razão/Múltipla Escolha Complexa (ex.: ``Ao analisar
+as asserções, assinale a alternativa correta.''), onde \texttt{phi-4}
+sempre incorporava o tópico específico no próprio \emph{stem} -- uma
+diferença de estilo específica de modelo, não um defeito arquitetural.
+Uma correção direcionada (instrução explícita de especificidade temática
+injetada no \emph{feedback} do gerador) resolveu 2 dos 4 casos
+identificados; os 2 restantes ($439$/$510$) permanecem como limitação
+documentada, causada por um problema estrutural não relacionado (viés de
+comprimento nas opções combinatórias curtas do formato Múltipla Escolha
+Complexa, consistente com o achado da Seção~\ref{sec:segundo-ciclo}), não
+por conteúdo duplicado.
+
+\paragraph{Contribuição metodológica.} Este episódio é, em si, uma
+demonstração empírica -- não apenas uma citação de literatura -- do
+problema que \cite{haldar2025rating} (``Rating Roulette''),
+\cite{korthals2026sure} (SURE) e a literatura de confiabilidade de juízes
+LLM diagnosticam de forma mais ampla: um único julgamento por um único
+modelo-juiz carrega um risco de confiabilidade não observável a partir de
+dentro do próprio pipeline que o produz. R43 (consistência do juiz por
+múltiplas passagens, ainda não implementado nesta entrega --
+Seção~\ref{sec:cobertura}) permanece como trabalho futuro apontado, mas
+este episódio fornece agora uma evidência concreta e quantificada, não
+apenas teórica, da lacuna que R43 endereça: dois juízes competentes,
+sobre o mesmo lote de itens, discordam sistematicamente numa dimensão
+específica de qualidade (Bloom), não por ruído aleatório, mas por
+sensibilidade estrutural desigual a essa dimensão.
+
+O arquivo final entregue é, a partir desta auditoria,
+\texttt{entregavel\_2\_100\_questoes\_qwen\_validated.csv} (100 itens, 0
+\texttt{question\_id}s duplicados, verificado independentemente) --
+substituindo \texttt{entregavel\_2\_100\_questoes\_design\_d\_full.csv}
+como artefato final. A Seção~\ref{sec:metricas-run} preserva o relato
+histórico de como o lote original de 100 itens foi produzido; esta seção
+documenta a auditoria e correção que o levaram à sua forma final.
+
 \section{Resultados}
 \label{sec:resultados}
 
@@ -760,6 +862,12 @@ ambiguidade detectável apenas por um humano).
 
 \subsection{Métricas da Execução Completa (239 itens)}
 \label{sec:metricas-run}
+
+\emph{Nota: esta seção relata como o lote original de 100 itens foi
+produzido. Uma auditoria pós-entrega (Seção~\ref{sec:auditoria-qwen})
+identificou e corrigiu um problema de confiabilidade do juiz nesse lote;
+o arquivo final entregue reflete essa correção, não os números desta
+seção isoladamente.}
 
 Execução completa do \emph{pool} de 239 candidatos sob o Design D
 (\texttt{constitution.md} R45), \texttt{vllm\_local/phi-4@8000}
@@ -1054,10 +1162,20 @@ reconhecida, não uma omissão silenciosa.
 Em conformidade com o Código de Conduta para Autores em Publicações da SBC,
 declara-se o uso de ferramentas de Inteligência Artificial (IA) Generativa
 neste trabalho em dois níveis: (i)~como parte central da metodologia
-investigada -- os modelos Groq (\texttt{openai/gpt-oss-20b},
-\texttt{qwen/qwen3.6-27b}) foram usados como \emph{Generator} e \emph{Judge
-  Agents} no próprio pipeline de reparo de itens, conforme descrito na
-Seção~\ref{sec:metodologia} (Metodologia); e (ii)~como assistente de
+investigada -- três configurações de modelo distintas, em três momentos
+diferentes do projeto, foram usadas como \emph{Generator} e \emph{Judge
+  Agents} no próprio pipeline de reparo de itens: os modelos Groq
+(\texttt{openai/gpt-oss-20b}, \texttt{qwen/qwen3.6-27b}) na concepção
+original da submissão (Seção~\ref{sec:green-ai}); \texttt{phi-4} (gerador)
+e \texttt{gpt-oss-20b} (juiz), servidos localmente via
+\texttt{vllm\_local}, na execução completa que produziu o lote original
+de 100 itens (Seções~\ref{sec:descoberta}--\ref{sec:metricas-run}); e
+\texttt{gpt-oss-20b} (gerador) com \texttt{qwen3.6-27b} (juiz),
+novamente servidos localmente -- restaurando as identidades de modelo da
+concepção original, mas agora com visibilidade direta de hardware --
+na auditoria de confiabilidade e correção pós-entrega
+(Seção~\ref{sec:auditoria-qwen}) que produziu o arquivo final
+efetivamente entregue; e (ii)~como assistente de
 escrita e revisão na elaboração deste relatório e do código do pipeline
 (Claude, Anthropic). Nenhuma ferramenta de IA é listada como autora, e a
 responsabilidade integral pelo conteúdo, incluindo qualquer verificação de
