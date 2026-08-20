@@ -531,6 +531,25 @@ token-derived number as a calibrated kWh figure without hardware-specific
 validation — closing part of the Green AI disclosure gap (`spec.md` §5.4)
 honestly, via proxy reporting, rather than reporting nothing at all.
 
+**Implementation status (2026-08-18, exceeded — real measurement, not
+just the proxy floor):** this rule's own precondition ("where direct
+hardware energy instrumentation is unavailable") stopped applying once
+generation moved from Groq's black-box hosted API to a locally-served
+vLLM instance on project-controlled GPU hardware. Direct instrumentation
+*was* available there, and was used: `nvidia-smi
+--query-gpu=power.draw,utilization.gpu,memory.used` sampled every 2
+seconds for the full duration of the 239-item production run, with total
+energy computed by trapezoidal integration of instantaneous power over
+time. Result: **1.498 kWh** total (1,497.85 Wh), **16.1 Wh per approved
+item** (93/239 approved in that run) — a real, calibrated absolute
+figure, not the uncalibrated relative proxy this rule mandates as a
+floor for the black-box case. This does not waive the rule for any
+future black-box-API-only run (the proxy-logging floor above still
+applies whenever direct instrumentation is genuinely unavailable) — it
+means this project's own local-hardware runs cleared a higher bar than
+R37 requires, not that R37 became moot. Full methodology in
+`relatorio_tecnico.tex` §"Medição Real de Energia" and `CONTEXT.md` §9.2.
+
 ---
 
 ## X. Multi-Constraint Position Bias — Immutable Rules
@@ -911,3 +930,21 @@ Metodológica Central" and `CONTEXT.md` §9.1 (staged full version).
   logged R45 with only "partial, non-conclusive results" per `CONTEXT.md`
   §8) is superseded by this fuller account; see `spec.md`'s own v0.9 entry
   for the corresponding correction there.
+- v0.14 (2026-08-20, R37 implementation-status follow-up — same category
+  of correction as v0.13): the v0.12 net-effect summary two entries above
+  lists R37 among the rules that "remain documented-but-unimplemented or
+  explicitly deferred." That was true when v0.12 was written but is now
+  stale: the real `nvidia-smi` power-measurement work (1.498 kWh over the
+  239-item production run, 16.1 Wh/item approved — see the inline
+  implementation-status note now added to R37 above) was completed
+  afterward, the same way Design D's R45 calibration was. R37 belongs
+  alongside R9, R12/R13, R21–R23, R25–R26, R38, R42, and R45 in the
+  "confirmed genuinely implemented" list, not in the unimplemented/
+  deferred one — in this case *exceeded*, not merely satisfied, since
+  direct hardware instrumentation was actually available for these local
+  runs, superseding the black-box-proxy floor the rule's text describes.
+  Found during an external cross-consistency audit of the files staged
+  for the Kaggle submission folder, not by the same-day implementation
+  work itself (unlike R45's v0.13 entry) — flagged here per R31/R32
+  rather than corrected silently, matching this document's own standard
+  for a wrong or stale claim.
