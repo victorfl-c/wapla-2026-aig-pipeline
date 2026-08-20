@@ -164,15 +164,14 @@
 % Verified against PDF title page
 % (literatura/mod_2_motor_aig_sintetico/PhD_Thesis_Seedat_Electronic_updated_15_June.pdf);
 % corrects an earlier secondhand title/year guess ("Trustworthy Machine
-% Learning...", 2024).
+% Learning...", 2024). Ch. 4 covers the CLLM (Curated LLM) architecture
+% referenced by this report.
 @PhdThesis{seedat2025datacentric,
   author = {Nabeel Seedat},
   title  = {Data-Centric {AI} for Reliable and Trustworthy Machine Learning},
   school = {University of Cambridge (Lucy Cavendish College)},
   year   = {2025},
-  month  = jun,
-  note   = {Ch.~4 covers the CLLM (Curated LLM) architecture referenced by
-            this report}
+  month  = jun
 }
 
 % Verified against PDF title page
@@ -262,6 +261,7 @@
             Networks) method and the EcoTaskSet benchmark}
 }
 
+% Introduces the R2-Reasoner grouped-search routing framework.
 @InProceedings{shao2026routeandreason,
   author    = {Chenyang Shao and Xinyang Liu and Yutang Lin and Fengli Xu and
                Yong Li},
@@ -270,8 +270,7 @@
   booktitle = {Proceedings of the ACM Web Conference 2026 (WWW '26)},
   address   = {Dubai, United Arab Emirates},
   year      = {2026},
-  doi       = {10.1145/3774904.3793038},
-  note      = {Introduces the R2-Reasoner grouped-search routing framework}
+  doi       = {10.1145/3774904.3793038}
 }
 
 % NOT a peer-reviewed publication -- reviewed for this project's literature
@@ -697,6 +696,9 @@
 
 % Verified against PDF title page (retrieved via the journal's CDN,
 % mdpi-res.com, after the article page itself blocked plain HTTP requests).
+% University of Amsterdam. Evaluates gpt-oss-20b specifically as a
+% grading/judge model under the SURE method (Selective Uncertainty-based
+% Re-Evaluation).
 @Article{korthals2026sure,
   author  = {Luke Korthals and Emma Akrong and Gali Geller and Hannes Rosenbusch
              and Raoul Grasman and Ingmar Visser},
@@ -707,45 +709,38 @@
   number  = {3},
   pages   = {74},
   year    = {2026},
-  doi     = {10.3390/make8030074},
-  note    = {University of Amsterdam. Evaluates \texttt{gpt-oss-20b}
-             specifically as a grading/judge model under the SURE method
-             (Selective Uncertainty-based Re-Evaluation)}
+  doi     = {10.3390/make8030074}
 }
 
 % Verified against PDF title page.
+% Measures inference energy via the Zeus tool (You, Chung & Chowdhury,
+% 2023) across 46 models, 7 tasks, 1,858 configurations; finds output token
+% count the dominant energy driver and batching/GPU utilization state a
+% further 3-5x per-token cost swing invisible to the API caller. This
+% project's own energy measurement (Seção~\ref{sec:green-ai-medido})
+% approximates the same quantity via direct nvidia-smi power-draw polling
+% and trapezoidal integration, since Zeus itself was not installed in this
+% project's environment -- a lighter-weight approximation of the same
+% measurement goal, not a reproduction of their instrumentation.
 @Misc{chung2026joules,
   author = {Jae-Won Chung and Ruofan Wu and Jeff J. Ma and Mosharaf Chowdhury},
   title  = {Where Do the Joules Go? Diagnosing Inference Energy Consumption},
   year   = {2026},
-  doi    = {10.48550/arXiv.2601.22076},
-  note   = {arXiv:2601.22076v1. Measures inference energy via the Zeus tool
-            (You, Chung \& Chowdhury, 2023) across 46 models, 7 tasks,
-            1{,}858 configurations; finds output token count the dominant
-            energy driver and batching/GPU utilization state a further
-            3--5x per-token cost swing invisible to the API caller. This
-            project's own energy measurement
-            (Seção~\ref{sec:green-ai-medido}) approximates the same
-            quantity via direct \texttt{nvidia-smi} power-draw polling and
-            trapezoidal integration, since Zeus itself was not installed in
-            this project's environment -- a lighter-weight approximation of
-            the same measurement goal, not a reproduction of their
-            instrumentation}
+  doi    = {10.48550/arXiv.2601.22076}
 }
 
 % Verified against PDF title page.
+% Measures output-token count as the dominant, near-deterministic energy
+% driver on instrumented A100 hardware (energy scales linearly with output
+% length, R^2=0.999, ~1.72 J/generated token), with input/prompt length
+% nearly irrelevant (R^2=0.071).
 @Misc{wang2026systematic,
   author = {Haonan Wang and Xuxin Xiao and Mingyu Yan and Zhuoyuan Zhu and
             Dengke Han and Duo Wang and Wenming Li and Xiaochun Ye and
             Cunchen Hu and Hongyang Chen and Guangyu Sun},
   title  = {A Systematic Characterization of {LLM} Inference on {GPUs}},
   year   = {2026},
-  doi    = {10.48550/arXiv.2512.01644},
-  note   = {arXiv:2512.01644v1. Measures output-token count as the
-            dominant, near-deterministic energy driver on instrumented A100
-            hardware (energy scales linearly with output length,
-            $R^2=0.999$, $\approx$1.72~J/generated token), with
-            input/prompt length nearly irrelevant ($R^2=0.071$)}
+  doi    = {10.48550/arXiv.2512.01644}
 }
 
 % Verified against PDF title page.
@@ -767,35 +762,32 @@
 }
 
 % Verified against PDF title page.
+% Found forcing a model to commit to an answer key before its reasoning
+% caused severe, task-specific accuracy collapse (e.g. 86.51%->23.44% on
+% GSM8K), confirmed structural rather than a parsing artifact -- motivates
+% constitution.md R42 (schema field ordering: reasoning fields must precede
+% the answer/verdict fields they justify).
 @Misc{tam2024speak,
   author = {Zhi Rui Tam and Cheng-Kuang Wu and Yi-Lin Tsai and Chieh-Yen Lin
             and Hung-yi Lee and Yun-Nung Chen},
   title  = {Let Me Speak Freely? A Study on the Impact of Format
             Restrictions on Performance of Large Language Models},
   year   = {2024},
-  doi    = {10.48550/arXiv.2408.02442},
-  note   = {arXiv:2408.02442v1. Found forcing a model to commit to an
-            answer key before its reasoning caused severe, task-specific
-            accuracy collapse (e.g. 86.51\%$\to$23.44\% on GSM8K),
-            confirmed structural rather than a parsing artifact --
-            motivates constitution.md R42 (schema field ordering:
-            reasoning fields must precede the answer/verdict fields they
-            justify)}
+  doi    = {10.48550/arXiv.2408.02442}
 }
 
 % Verified against PDF title page (literatura/mod_14_exact_length_control/).
+% Introduces CAPEL (Countdown-Aided Prompting for Exact Length): visible,
+% sequentially-decrementing countdown markers interleaved with generated
+% tokens externalize length counting, raising MT-Bench-LI strict length
+% compliance with gpt-4.1 from below 30% to above 95%. Motivates
+% constitution.md R45 and this project's Design D.
 @Misc{xie2026length,
   author = {Juncheng Xie and Hung-yi Lee},
   title  = {Prompt-Based One-Shot Exact Length-Controlled Generation with
             {LLMs}},
   year   = {2026},
-  doi    = {10.48550/arXiv.2508.13805},
-  note   = {arXiv:2508.13805v1. Introduces CAPEL (Countdown-Aided Prompting
-            for Exact Length): visible, sequentially-decrementing countdown
-            markers interleaved with generated tokens externalize length
-            counting, raising MT-Bench-LI strict length compliance with
-            gpt-4.1 from below 30\% to above 95\%. Motivates
-            constitution.md R45 and this project's Design D}
+  doi    = {10.48550/arXiv.2508.13805}
 }
 
 % Verified against PDF title page
