@@ -1276,3 +1276,38 @@ aggregate, not reliably per-attempt.
     confirmed working, not merely non-crashing. `kaggle_submission_final/`
     was re-populated with the corrected notebook and the now-synced `.md`
     files after this fix.
+- v1.7 (2026-08-20, both flagged decisions resolved by user): user
+  explicitly confirmed both items v1.6 raised: (1) fix
+  `WAPLA_AIG_Engine.py`'s own `--dry-run` `TARGET_LETTER` crash, not just
+  the notebook's copy; (2) push tonight's commits to `origin/main`.
+  - **Engine fix** (commit `0cb6813`): applied the identical fix pattern
+    as the notebook's `_mock_generator_response()` — stopped reading
+    `TARGET_LETTER` from the prompt (no longer present since the
+    position-content-decoupling change), always place mock content at
+    `option_a`, bucket on a feedback-stripped content hash instead of
+    `(discipline, target_letter, target_level)`. A full
+    `python WAPLA_AIG_Engine.py --dry-run --pool-size 12` run was
+    attempted for end-to-end confirmation but hung on an unrelated
+    environmental issue during `build_candidate_pool()`'s HF dataset
+    load (CPU time flat across repeated checks, consistent with this
+    codebase's own documented NFS/network-contention history elsewhere)
+    and was killed rather than left blocking. Correctness was instead
+    confirmed via a direct unit test of the fixed mock function chain
+    (`build_generator_messages` → `_mock_generator_response` →
+    `GeneratedItem` validation → `apply_position_shuffle` →
+    `build_judge_messages` → `_mock_judge_response` → `JudgeVerdict`
+    validation) — all steps behave correctly, `correct_option` starts at
+    `"A"` and correctly relocates to the assigned target letter. A real
+    end-to-end `--dry-run` smoke test with a healthy network connection
+    is still recommended before treating this as fully confirmed at
+    full-pipeline scale, though the unit-level logic fix itself is not
+    in doubt.
+  - **Pushed**: `git push origin main` succeeded, `576150a..0cb6813`,
+    fast-forward, no conflicts. `origin/main` and local `main` are now
+    fully in sync (confirmed via `git log origin/main..HEAD` returning
+    empty). Nothing from tonight's session remains unpushed.
+  - `kaggle_submission_final/WAKE_UP_README.txt` updated to reflect both
+    resolutions (also copied the fixed `WAPLA_AIG_Engine.py` into that
+    folder, though nothing in the notebook or Kaggle upload actually
+    depends on that specific file being present there — included for
+    completeness/reference only, same as the four `.md` docs).
