@@ -13,6 +13,8 @@ EOFoutput/backup_groq_ollama_mix/
 output/*.csv
 output/*.jsonl
 !output/entregavel_2_100_questoes_design_d_full.csv
+!output/entregavel_2_100_questoes_qwen_validated.csv
+!output/aig_audit_trail_qwen_remediation.jsonl
 Template_SBC/
 Template_SBC/
 relatorio/sbc-template.sty
