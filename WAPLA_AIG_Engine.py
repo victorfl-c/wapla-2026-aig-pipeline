@@ -1549,12 +1549,26 @@ _CORRECT_MARKER = "considera adequadamente"
 
 
 def _mock_generator_response(user_content: str) -> str:
-    target_letter = re.search(r"TARGET_LETTER: (\w)", user_content).group(1)
+    """Bug fix (2026-08-20): this used to read a TARGET_LETTER field out of
+    the prompt, but build_generator_messages() (position-content
+    decoupling -- see Rule 2 in GENERATOR_SYSTEM_PROMPT) never puts
+    TARGET_LETTER in the prompt anymore -- the generator always writes the
+    correct answer as option_a, and apply_position_shuffle() relocates it
+    mechanically afterward, outside the prompt entirely. The old regex
+    crashed with 'NoneType has no attribute group' on every call, so
+    --dry-run was silently 0%-approval-broken. Fixed to match the real
+    architecture: always place the correct content at 'A', exactly as
+    Rule 2 instructs a real generator to do."""
     target_level = re.search(r"TARGET_LEVEL: (\w+)", user_content).group(1)
     discipline = re.search(r"DISCIPLINE: (.+)", user_content).group(1).strip()
     has_feedback = "FEEDBACK DA TENTATIVA ANTERIOR" in user_content
     verb = BLOOM_VERBS_PT[target_level][0]
-    item_key = (discipline, target_letter, target_level)
+    # No TARGET_LETTER available anymore (see docstring) -- hash the
+    # ORIGINAL item content (everything before any appended feedback
+    # section) instead, so the bucket is stable across retries for the
+    # same item, not just on the first attempt.
+    base_content = user_content.split("FEEDBACK DA TENTATIVA ANTERIOR")[0]
+    bucket = hash(base_content) % 20
 
     # Three deterministic, non-overlapping simulated scenarios (only on the
     # FIRST attempt, i.e. before any feedback exists) so the dry run
@@ -1567,10 +1581,9 @@ def _mock_generator_response(user_content: str) -> str:
     #           False), independent of any mechanical check; clean on retry.
     #   ~4%  -- "cursed" item that never improves even with feedback, to
     #           exercise the exhausted-retries -> backfill path.
-    bucket = hash(item_key) % 20
-    simulate_verbosity_flaw = (not has_feedback) and bucket < 3
-    simulate_judge_flaw = (not has_feedback) and 3 <= bucket < 5
     is_cursed = bucket == 19
+    simulate_verbosity_flaw = (not has_feedback) and bucket < 3
+    simulate_judge_flaw = ((not has_feedback) and 3 <= bucket < 5) or is_cursed
 
     # Fixed-length templates (manually verified during development to have
     # equal word count regardless of discipline length; not covered by an
@@ -1584,27 +1597,17 @@ def _mock_generator_response(user_content: str) -> str:
         "D": f"inverte a relação causal central prevista em {discipline}.",
         "E": f"generaliza de forma indevida um caso sobre {discipline}.",
     }
-    distractor_keys = ["B", "C", "D", "E"]
-    remaining_letters = [l for l in OPTION_LETTERS if l != target_letter]
-    options = {target_letter: base_texts["A"]}
-    options.update(dict(zip(remaining_letters, (base_texts[k] for k in distractor_keys))))
+    # Rule 2 (position-content decoupling): the generator ALWAYS writes the
+    # correct answer as option_a -- apply_position_shuffle() relocates it
+    # mechanically afterward, exactly like a real generator call.
+    options = dict(base_texts)
+    correct_option = "A"
 
-    if is_cursed:
-        # Never places the correct content at target_letter, regardless of
-        # feedback -- proves the pipeline correctly gives up after
-        # MAX_RETRIES and backfills from the pool instead of looping forever
-        # or silently accepting a bad item.
-        swap_with = remaining_letters[0]
-        options[target_letter], options[swap_with] = options[swap_with], options[target_letter]
-        correct_option = target_letter  # generator still (wrongly) claims target_letter
-    elif simulate_verbosity_flaw:
-        options[target_letter] = options[target_letter] + " " + (
+    if simulate_verbosity_flaw:
+        options["A"] = options["A"] + " " + (
             "Este trecho adicional torna a opção correta visivelmente mais longa "
             "que as demais, simulando um item malformado a ser pego pelo filtro mecânico."
         )
-        correct_option = target_letter
-    else:
-        correct_option = target_letter
 
     stem = f"Ao {verb} o cenário apresentado sobre {discipline}, é correto afirmar que a alternativa"
     if simulate_judge_flaw:
@@ -1623,15 +1626,15 @@ def _mock_generator_response(user_content: str) -> str:
         "statement_iv": f"O critério adotado para {discipline} é insuficiente.",
         "assertion_i": f"I. Ao {verb} o tema de {discipline}, observa-se um padrão consistente.",
         "assertion_ii": f"II. PORQUE o referencial teórico de {discipline} sustenta essa leitura.",
-        "option_a": options.get("A", base_texts["A"]),
-        "option_b": options.get("B", base_texts["B"]),
-        "option_c": options.get("C", base_texts["C"]),
-        "option_d": options.get("D", base_texts["D"]),
-        "option_e": options.get("E", base_texts["E"]),
+        "option_a": options["A"],
+        "option_b": options["B"],
+        "option_c": options["C"],
+        "option_d": options["D"],
+        "option_e": options["E"],
         "generator_notes": (
             "mock generation"
             + (" (simulated verbosity flaw)" if simulate_verbosity_flaw else "")
-            + (" (simulated judge-rejectable content)" if simulate_judge_flaw else "")
+            + (" (simulated judge-rejectable content)" if simulate_judge_flaw and not is_cursed else "")
             + (" (cursed -- never converges)" if is_cursed else "")
         ),
         "correct_option": correct_option,
