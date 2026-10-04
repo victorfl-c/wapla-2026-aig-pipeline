@@ -85,6 +85,10 @@ AUDIT_TRAIL_PATH = OUTPUT_DIR / "aig_audit_trail.jsonl"
 JUDGE_BIAS_AUDIT_PATH = OUTPUT_DIR / "judge_bias_audit_log.json"
 LOG_PATH = OUTPUT_DIR / "aig_engine.log"
 TOKEN_USAGE_LOG_PATH = OUTPUT_DIR / "aig_token_usage.json"
+# Per-CALL token telemetry, appended by _record_usage_fields(). Distinct
+# from the cumulative daily file above, which only exists to enforce a
+# hosted-provider quota and is a no-op for local models (R37).
+TOKEN_CALL_LOG_PATH = OUTPUT_DIR / "aig_token_calls.jsonl"
 
 # --dry-run uses its own output files so a mock/plumbing-validation run can
 # never append mock entries into, or overwrite, the real multi-session
@@ -1009,6 +1013,49 @@ def _reasoning_effort_for_model(model: str) -> Optional[str]:
     return None
 
 
+async def _record_usage_fields(usage: Optional[dict], model: str, role: str = "") -> None:
+    """Record exact per-call token usage, INCLUDING for local models.
+
+    Added 2026-10-02. Until now `_record_usage` fed the daily-budget tracker
+    only, and `_daily_budget` is None whenever both agents are local (R37) --
+    which was true of every real cluster session. The consequence was that no
+    per-call token telemetry existed for the runs that mattered, and
+    tools/token_reconstruction.py had to RE-TOKENIZE stored content and replay
+    the prompt builders to estimate it, with a disclosed overestimate on two
+    sessions.
+
+    vLLM's OpenAI-compatible endpoint returns prompt_tokens/completion_tokens/
+    total_tokens on every response, so the measurement was always there and
+    was simply being discarded. This appends it to a JSONL log keyed by model
+    and role, which is cheap, append-only, and survives a crash mid-run.
+
+    Still feeds the daily budget when one is active, so the Groq TPD guard is
+    unchanged.
+    """
+    if not usage:
+        return
+    total = usage.get("total_tokens")
+    try:
+        rec = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "model": model,
+            "role": role,
+            "prompt_tokens": usage.get("prompt_tokens"),
+            "completion_tokens": usage.get("completion_tokens"),
+            "total_tokens": total,
+        }
+        TOKEN_CALL_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(TOKEN_CALL_LOG_PATH, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + chr(10))
+    except OSError as exc:
+        # Never let accounting break a run; a missing line is recoverable,
+        # a crashed 11-hour job is not.
+        logger.warning("Could not append to %s: %s", TOKEN_CALL_LOG_PATH, exc)
+
+    if _daily_budget is not None and isinstance(total, (int, float)) and total > 0:
+        await _daily_budget.record(int(total))
+
+
 async def _record_usage(resp) -> None:
     """Feeds a completion response's exact token usage into the daily
     budget tracker, if one is active (real, non-dry-run run). Both litellm
@@ -1145,6 +1192,7 @@ async def _vllm_direct_chat(messages: list[dict], model: str, temperature: float
             f"vLLM request hit the {_VLLM_REQUEST_TIMEOUT}s timeout "
             f"(model={served_name}, port={port})"
         ) from exc
+    await _record_usage_fields(data.get("usage"), model)
     return data["choices"][0]["message"]["content"]
 
 
@@ -1757,6 +1805,26 @@ class JudgeOutcome:
     approved: bool
     reasons: list[str]
     raw_verdict: Optional[JudgeVerdict] = None
+    # --- blind-solve decision, persisted as FIELDS (added 2026-10-02) ------
+    # The blind solve is what actually drives most rejections: in the Design D
+    # full run it disagreed with the key on 65 of 181 verdicts, was
+    # deterministic (0 of those 65 were approved) and accounted for 83% of all
+    # rejections -- while 64 of 78 rejections had ALL FOUR structured audit
+    # flags true. Until now the decision survived only as a sentence inside
+    # `reasons`, so the only way to recover it was to regex the judge's own
+    # prose, and `reasons` is not even a rejection list (it is present on 102
+    # of 103 APPROVALS, carrying positive findings). A prompt reword would
+    # have silently zeroed the count.
+    #
+    # Everything below is known to this function at the moment the decision is
+    # made. None of it was being written down.
+    blind_solve_agrees: Optional[bool] = None
+    blind_solve_letter: Optional[str] = None   # judge's pick, un-shuffled
+    blind_solve_label: Optional[str] = None    # the shuffled slot it picked
+    claimed_letter: Optional[str] = None       # the key the generator claimed
+    blind_solve_votes: Optional[int] = None    # agreeing reorderings
+    n_reorderings: Optional[int] = None
+    shuffle_map: Optional[dict] = None         # label -> letter, last reordering
 
 
 async def judge_agent(item: GeneratedItem, target_letter: str, target_level: str,
@@ -1771,6 +1839,10 @@ async def judge_agent(item: GeneratedItem, target_letter: str, target_level: str
     votes_for_target = 0
     last_verdict: Optional[JudgeVerdict] = None
     all_reasons: list[str] = []
+    # last reordering's blind-solve decision, kept for JudgeOutcome's fields
+    last_blind_letter: Optional[str] = None
+    last_blind_label: Optional[str] = None
+    last_shuffle_map: Optional[dict] = None
 
     for _ in range(n_reorderings):
         shuffled_letters = list(OPTION_LETTERS)
@@ -1786,6 +1858,9 @@ async def judge_agent(item: GeneratedItem, target_letter: str, target_level: str
 
         blind_solve_letter = letter_of_label.get(verdict.blind_solve_shuffled_label)
         agrees_with_target = blind_solve_letter == target_letter
+        last_blind_letter = blind_solve_letter
+        last_blind_label = verdict.blind_solve_shuffled_label
+        last_shuffle_map = dict(letter_of_label)
         if agrees_with_target:
             votes_for_target += 1
         else:
@@ -1815,7 +1890,16 @@ async def judge_agent(item: GeneratedItem, target_letter: str, target_level: str
     if not checks_ok and not reasons:
         reasons.append("Judge rejected without a specific reason (defensive fallback).")
 
-    return JudgeOutcome(approved=checks_ok, reasons=reasons, raw_verdict=last_verdict)
+    return JudgeOutcome(
+        approved=checks_ok, reasons=reasons, raw_verdict=last_verdict,
+        blind_solve_agrees=position_ok,
+        blind_solve_letter=last_blind_letter,
+        blind_solve_label=last_blind_label,
+        claimed_letter=target_letter,
+        blind_solve_votes=votes_for_target,
+        n_reorderings=n_reorderings,
+        shuffle_map=last_shuffle_map,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -2129,6 +2213,15 @@ async def process_item(row: pd.Series, target_letter: str, generator_model: str,
             entry["judge_outcome"] = {
                 "approved": judge_outcome.approved, "reasons": judge_outcome.reasons,
                 "raw_verdict": judge_outcome.raw_verdict.model_dump() if judge_outcome.raw_verdict else None,
+                # structured blind-solve decision -- see JudgeOutcome's comment.
+                # Previously recoverable only by regex over `reasons`.
+                "blind_solve_agrees": judge_outcome.blind_solve_agrees,
+                "blind_solve_letter": judge_outcome.blind_solve_letter,
+                "blind_solve_label": judge_outcome.blind_solve_label,
+                "claimed_letter": judge_outcome.claimed_letter,
+                "blind_solve_votes": judge_outcome.blind_solve_votes,
+                "n_reorderings": judge_outcome.n_reorderings,
+                "shuffle_map": judge_outcome.shuffle_map,
             }
             audit_entries.append(entry)
 
